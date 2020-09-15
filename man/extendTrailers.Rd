@@ -10,15 +10,17 @@ extendTrailers(grl, extension = 1000L)
 \item{grl}{usually a \code{\link{GRangesList}} of 3' utrs or transcripts.
 Can be used for any extension of groups.}
 
-\item{extension}{an integer, how much to extend the leaders.
-Or a GRangesList where start / stops by strand are the positions
+\item{extension}{an integer, how much to extend downstream (3' end).
+Eiter single value that will apply for all, or same as length of grl
+which will give 1 update value per grl object.
+Or a GRangesList where start / stops sites by strand are the positions
 to use as new starts.}
 }
 \value{
 an extended GRangeslist
 }
 \description{
-Will extend the trailers or transcripts downstream by extension.
+Will extend the trailers or transcripts downstream (3' end) by extension.
 Remember the extension is general not relative, that means splicing
 will not be taken into account.
 Requires the \code{grl} to be sorted beforehand,
@@ -37,3 +39,14 @@ extendTrailers(threeUTRs, extension = 1000)
 extendTrailers(tx, extension = 1000)
 
 }
+\seealso{
+Other ExtendGenomicRanges: 
+\code{\link{asTX}()},
+\code{\link{coveragePerTiling}()},
+\code{\link{extendLeaders}()},
+\code{\link{reduceKeepAttr}()},
+\code{\link{tile1}()},
+\code{\link{txSeqsFromFa}()},
+\code{\link{windowPerGroup}()}
+}
+\concept{ExtendGenomicRanges}

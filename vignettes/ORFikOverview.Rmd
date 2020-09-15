@@ -116,7 +116,7 @@ saveRDS(fiveUTR_ORFs[1:2], "save/path/uorfs.rds")
 
 2. If you want to use in IGV, UCSC genome browser etc:
 Save as bed12 format, that is a bed format with 1 row per ORF, that contains
-splicing information:
+splicing information and even possible color coding for visualizing groups of ORFs:
 ```{r eval = FALSE, echo = TRUE, message = FALSE}
 export.bed12(fiveUTR_ORFs[1:2], "save/path/uorfs.rds")
 ```
@@ -128,13 +128,14 @@ orf_seqs <- extractTranscriptSeqs(BSgenome.Hsapiens.UCSC.hg19::Hsapiens,
                                   fiveUTR_ORFs[1:3])
 orf_seqs
 ```
-You can see ORF 1 named (uc010ogz.1_1) has a CTG start codon, a TAG stop codon and 159/3 = 53 codons. We will now look on ORFik functions to get startcodons and stopcodon etc.
+You can see ORF 1 named (uc010ogz.1_1) has a CTG start codon, a TAG stop codon and 159/3 = 53 codons. 
 
 To save as .fasta do
 ```{r eval = FALSE, echo = TRUE, message = FALSE}
 writeXStringSet(orf_seqs, filepath = "uorfs.fasta")
 ```
 
+We will now look on ORFik functions to get startcodons and stopcodon etc.
 # New GRanges and GRangesList utilities for ORFs
 `ORFik` contains functions that can be utilized to speed up your coding.
 Check documentation for these functions: `sortPerGroup`, `unlistGrl`, 
@@ -148,22 +149,23 @@ There are 2 main ways of grouping ORFs.
 
 To do this more easily, you can use the function `groupGRangesBy`.
 
-Grouped by transcript:
-we use the names to group
+1. Grouped by transcript:
+We use the names() to group, 
 ```{r eval = TRUE, echo = TRUE}
 unlisted_ranges <- unlistGrl(fiveUTR_ORFs)
-test_ranges <- groupGRangesBy(unlisted_ranges) # <- defualt is tx grouping by names
+test_ranges <- groupGRangesBy(unlisted_ranges) # <- defualt is tx grouping by names()
 test_ranges[1]
 ```
+All orfs within a transcript grouped together as one group, the names column seperates the orfs.
 
-Grouped by ORF:
+2. Grouped by ORF:
 we use the orfs meta column called ($names) to group, it is made by ORFik.
 ```{r eval = TRUE, echo = TRUE}
 unlisted_ranges <- unlistGrl(fiveUTR_ORFs)
 test_ranges <- groupGRangesBy(unlisted_ranges, unlisted_ranges$names)
 test_ranges[1:2]
 ```
-
+Here you see each group is one ORF only.
 
 ## Filtering example
 
@@ -520,7 +522,7 @@ rate <- fpkm(cds, RFP)
 ORFik:::kozakHeatmap(seqs, rate)
 
 ```
-It will be a black box around the strongest nucleotide per position 
+It will be a black boundary box around the strongest nucleotide per position 
 (what base at what position gives highest ribo-seq fpkm for the cds).
 See at the start codon (position +1 to +3) you have A, T, G.
 As known from the literature many C's before start codon and a G after 
@@ -553,7 +555,7 @@ over the CDS. How would you make this filter ?
   # We could do a simplification and use the ORFik entropy function
   entropy(cds, ribo) # <- spread of reads
 ```
-We see that ORF 1, has a low(bad) entropy, but we do not know where the reads 
+We see that ORF 1, has a low (bad) entropy, but we do not know where the reads 
 are stacked up.
 So lets make a new filter by using more ORFiks utility functions:
 ```{r eval = TRUE, echo = TRUE}
@@ -647,7 +649,7 @@ coverageHeatMap(hitMap, addFracPlot = TRUE)
 ```
 In the heatmap you can see that read length 30 has the strongest peak on the 
 TIS, while read length 28 has some reads in the leaders (the minus positions).
-
+  
 ## Multiple data sets in one plot
 
 Often you have multiple data sets you want to compare (like ribo-seq).

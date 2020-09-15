@@ -10,7 +10,9 @@ TOP.Motif.ecdf(
   start = 1,
   stop = max(nchar(seqs)),
   xlim = c("q10", "q99"),
-  type = "Scanning efficiency"
+  type = "Scanning efficiency",
+  legend.position.1st = c(0.75, 0.28),
+  legend.position.motif = c(0.75, 0.28)
 )
 }
 \arguments{
@@ -32,6 +34,12 @@ type: numeric or quantile of length 2,
 3. Set to NULL if you want all values. Backend uses coord_cartesian.}
 
 \item{type}{What type is the rate scoring ? default ("Scanning efficiency")}
+
+\item{legend.position.1st}{adjust left plot label position, default c(0.75, 0.28),
+("none", "left", "right", "bottom", "top", or two-element numeric vector)}
+
+\item{legend.position.motif}{adjust right plot label position, default c(0.75, 0.28),
+("none", "left", "right", "bottom", "top", or two-element numeric vector)}
 }
 \value{
 a ggplot gtable of the TOP motifs in 2 plots
@@ -43,6 +51,10 @@ And some score, scanning efficiency (SE), ribo-seq fpkm, TE etc.
 \details{
 Top motif defined as a TSS of C and 4 T's or C's (pyrimidins) downstream
 of TSS C.
+
+The right plot groups:
+C nucleotide, TOP motif (C, then 4 pyrimidines) and
+OTHER (all other TSS variants).
 }
 \examples{
 
@@ -63,10 +75,13 @@ if (requireNamespace("BSgenome.Hsapiens.UCSC.hg19")) {
   # Some toy ribo-seq fpkm scores on cds
   fpkm <- sample(1:115, length(leadersCage), replace = TRUE)
   # Standard arguments
-  TOP.Motif.ecdf(seqs, fpkm, type = "ribo-seq FPKM")
-
+  TOP.Motif.ecdf(seqs, fpkm, type = "ribo-seq FPKM",
+                 legend.position.1st = "bottom",
+                 legend.position.motif = "bottom")
   # with no zoom on x-axis:
-  TOP.Motif.ecdf(seqs, fpkm, xlim = NULL)
+  TOP.Motif.ecdf(seqs, fpkm, xlim = NULL,
+                 legend.position.1st = "bottom",
+                 legend.position.motif = "bottom")
 }
 }
 

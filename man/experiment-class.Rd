@@ -14,17 +14,14 @@ to guess grouping / types / pairs by the file names.
 Act as a way of extension of \code{\link{SummarizedExperiment}} by allowing
 more ease to find not only counts, but rather
 information about libraries, and annotation, so that more tasks are
-possible. Like coverage per position in some transcript etc.
-}
-\details{
-## Constructor:
-
-Simplest way to make is to call:
-create.experiment(dir)
-
-On some folder with libraries and see what you get. Some of the fields
+possible. Like coverage per position in some transcript etc.\cr
+## Constructor:\cr
+Simplest way to make is to call:\cr
+create.experiment(dir)\cr
+On some folder with NGS libraries (usually bam files) and see what you get.
+Some of the fields
 might be needed to fill in manually. Each resulting row must be unique
-(excluding filepath), that means
+(not including filepath, they are always unique), that means
 if it has replicates then that must be said explicit. And all
 filepaths must be unique and have files with size > 0.
 Syntax (columns):\cr
@@ -33,28 +30,34 @@ rep (replicate): 1,2,3 etc\cr
 condition: WT (wild-type), control, target, mzdicer, starved etc.\cr
 fraction: 18, 19 (fractinations), or other ways to split library.\cr
 filepath: Full filepath to file
-
-
+}
+\details{
 Special rules:\cr
 Supported:\cr
-Single end bam, bed, wig + compressions of these\cr
+Single/paired end bam, bed, wig, ofst + compressions of these\cr
 Paired forward / reverse wig files, must have same name except
- _forward / _reverse etc
-
-Not supported yet:\cr
-Paired end bam files not supported yet!
+ _forward / _reverse in name\cr
+Paired end bam, set pairedEndBam = c(T, T, T, F). For 3 paired end
+libraries, then one single end.\cr
+Naming:
+Will try to guess naming for tissues / stages, replicates etc.
+If it finds more than one hit for one file, it will not guess.
+Always check that it guessed correctly.
 }
 \examples{
+# To see an internal ORFik example
+df <- ORFik.template.experiment()
+# This is how to make it:
 \dontrun{
 library(ORFik)
 
 # 1. Update path to experiment data  directory (bam, bed, wig files etc)
 exp_dir = "/data/processed_data/RNA-seq/Lee_zebrafish_2013/aligned/"
 
-# 2. Set a 5 character name for experiment, (Lee 2013 -> Lee13, etc)
+# 2. Set a 5 character name for experiment, (Lee et al 2013 -> Lee13, etc)
 exper_name = "Lee13"
 
-# 3. Create a template experiment
+# 3. Create a template experiment (gtf and fasta genome)
 temp <- create.experiment(exp_dir, exper_name,
  txdb = "/data/references/Zv9_zebrafish/Danio_rerio.Zv9.79.gtf",
  fa = "/data/references/Zv9_zebrafish/Danio_rerio.Zv9.fa")
@@ -66,7 +69,7 @@ temp <- create.experiment(exp_dir, exper_name,
 
 temp[5:6, 1] <- "RNA" # [row 5 and 6, col 1] are library types
 
-# You can also do this in your spread sheet program (excel, libre..)
+# You can also do this in your spread sheet program (excel, libre office)
 # Now save new version, if you did not use spread sheet.
 saveName <- paste0("/data/processed_data/experiment_tables_for_R/",
  exper_name,".csv")
@@ -86,6 +89,7 @@ Other ORFik_experiment:
 \code{\link{create.experiment}()},
 \code{\link{filepath}()},
 \code{\link{libraryTypes}()},
+\code{\link{organism.df}()},
 \code{\link{outputLibs}()},
 \code{\link{read.experiment}()},
 \code{\link{save.experiment}()},

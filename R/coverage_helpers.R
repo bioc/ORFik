@@ -9,9 +9,9 @@
 #' @param txdb a TxDb object or a path to gtf/gff/db file.
 #' @param reads GRanges or GAlignment of reads
 #' @param splitIn3 a logical(TRUE), split window in 3 (leader, cds, trailer)
-#' @param windowSize an integer (100), size of windows
+#' @param windowSize an integer (100), size of windows (columns)
 #' @param fraction a character (1), info on reads (which read length,
-#' or which type (RNA seq))
+#' or which type (RNA seq)) (row names)
 #' @inheritParams coveragePerTiling
 #' @return a data.table with columns position, score
 windowPerTranscript <- function(txdb, reads, splitIn3 = TRUE,
@@ -28,7 +28,8 @@ windowPerTranscript <- function(txdb, reads, splitIn3 = TRUE,
     leaders = fiveUTRsByTranscript(txdb, use.names = TRUE)[txNames]
     cds <- cdsBy(txdb, "tx", use.names = TRUE)[txNames]
     trailers = threeUTRsByTranscript(txdb, use.names = TRUE)[txNames]
-    txCov <- splitIn3Tx(leaders, cds, trailers, reads, windowSize, fraction)
+    txCov <- splitIn3Tx(leaders, cds, trailers, reads, windowSize, fraction,
+                        weight)
 
   } else {
     tx <- exonsBy(txdb, by = "tx", use.names = TRUE)
@@ -56,11 +57,14 @@ windowPerTranscript <- function(txdb, reads, splitIn3 = TRUE,
 #' @return a data.table with columns position, score
 splitIn3Tx <- function(leaders, cds, trailers, reads, windowSize = 100,
                        fraction = "1", weight = "score") {
-  leaderCov <- scaledWindowPositions(leaders, reads, windowSize)
+  leaderCov <- scaledWindowPositions(leaders, reads, windowSize,
+                                     weight = weight)
   leaderCov[, `:=` (feature = "leaders")]
-  cdsCov <- scaledWindowPositions(cds, reads, windowSize)
+  cdsCov <- scaledWindowPositions(cds, reads, windowSize,
+                                  weight = weight)
   cdsCov[, `:=` (feature = "cds")]
-  trailerCov <- scaledWindowPositions(trailers, reads, windowSize)
+  trailerCov <- scaledWindowPositions(trailers, reads, windowSize,
+                                      weight = weight)
   trailerCov[, `:=` (feature = "trailers")]
 
   txCov <- rbindlist(list(leaderCov, cdsCov, trailerCov))
@@ -75,8 +79,9 @@ splitIn3Tx <- function(leaders, cds, trailers, reads, windowSize = 100,
 #' Remember to resize them beforehand to width of 1 to focus on
 #' 5' ends of footprints etc, if that is wanted.
 #' @param windows GRangesList or GRanges of your ranges
-#' @param scoring a character, one of (zscore, transcriptNormalized,
-#' mean, median, sum, sumLength, NULL), see ?coverageScorings
+#' @param scoring a character, default: "sum", one of
+#' (zscore, transcriptNormalized, mean, median, sum, sumLength, NULL),
+#' see ?coverageScorings for info and more alternatives.
 #' @param withFrames a logical (TRUE), return positions with the 3 frames,
 #' relative to zeroPosition. zeroPosition is frame 0.
 #' @param zeroPosition an integer DEFAULT (NULL), the point if all windows
@@ -280,6 +285,8 @@ coverageScorings <- function(coverage, scoring = "zscore") {
     groupFPF <- quote(list(genes, position))
     scoring <- "sum"
   } else if (scoring == "frameSum") {
+    if (is.null(coverage$frame))
+      stop("Can not use frameSum scoring when no frames are given!")
     groupFPF <- quote(list(genes, frame))
     scoring <- "sum"
   } else if (scoring == "periodic") {
@@ -414,10 +421,9 @@ coveragePerTiling <- function(grl, reads, is.sorted = FALSE,
 
 #' Find proportion of reads per position per read length in window
 #'
-#' This is like a more detailed floss score, where floss score takes fraction
-#' of reads per read length over whole window, this is defined as:
-#' Fraction of reads  per read length, per position in whole window (by
-#' upstream and downstream)
+#' This is defined as:
+#' Fraction of reads  per read length, per position in whole window (defined
+#' by upstream and downstream)
 #'
 #' If tx is not NULL, it gives a metaWindow, centered around startSite of
 #' grl from upstream and downstream. If tx is NULL, it will use only downstream
@@ -427,9 +433,9 @@ coveragePerTiling <- function(grl, reads, is.sorted = FALSE,
 #'
 #' @inheritParams startRegion
 #' @inheritParams coveragePerTiling
-#' @param pShifted a logical (TRUE), are riboseq reads p-shifted to size
+#' @param pShifted a logical (TRUE), are Ribo-seq reads p-shifted to size
 #'  1 width reads? If upstream and downstream is set, this argument is
-#'  irrelevant.
+#'  irrelevant. So set to FALSE if this is not p-shifted Ribo-seq.
 #' @param upstream an integer (5), relative region to get upstream from.
 #' @param downstream an integer (20), relative region to get downstream from
 #' @param acceptedLengths an integer vector (NULL), the read lengths accepted.
@@ -439,8 +445,8 @@ coveragePerTiling <- function(grl, reads, is.sorted = FALSE,
 #' NOTE!: if windows have different widths, this will be ignored.
 #' @param scoring a character (transcriptNormalized), one of
 #' (zscore, transcriptNormalized, mean, median, sum, sumLength, fracPos),
-#' see ?coverageScorings. Use to decide a scoring of hits per position
-#' for metacoverage etc.
+#' see ?coverageScorings for more info. Use to decide a scoring of hits
+#' per position for metacoverage etc.
 #' @return a data.table with lengths by coverage / vector of proportions
 #' @family coverage
 #' @importFrom data.table rbindlist
@@ -463,7 +469,11 @@ windowPerReadLength <- function(grl, tx = NULL, reads, pShifted = TRUE,
   windows <- startRegion(grl, tx, TRUE, upstream, downstream)
   noHits <- widthPerGroup(windows) < windowSize
   if (all(noHits)) {
-    warning("no grl ranges had valid window size!")
+    warning("No object in grl had valid window size!")
+    message(paste("First window should be:", windowSize, "it is:",
+                  widthPerGroup(windows[1])))
+    print(grl[noHits][1])
+    message("Maybe you forgot extendLeaders()?")
     return(data.table())
   }
   rWidth <- readWidths(reads)
@@ -492,7 +502,8 @@ windowPerReadLength <- function(grl, tx = NULL, reads, pShifted = TRUE,
 #'
 #' Normally not used directly!
 #' @param logicals size 2 logical vector, the is.null checks for each column,
-#' @param grouping which grouping to perform
+#' @param grouping which grouping to perform, default "GF"
+#' Gene & Fraction grouping. Alternative "FGF", Fraction & position & feature.
 #' @return a quote of the grouping to pass to data.table
 coverageGroupings <- function(logicals, grouping = "GF") {
   one <- !logicals[1]

@@ -1,4 +1,3 @@
-
 #' Converts bed style data.frame to Granges
 #'
 #' For info on columns, see:
@@ -25,170 +24,113 @@ bedToGR <- function(x, skip.name = TRUE) {
   return(gr)
 }
 
-#' Load bed file as GRanges.
-#'
-#' Wraps around rtracklayer::import.bed and tries to speed up loading with the
-#' use of data.table. Supports gzip, gz, bgz and bed formats.
-#' Also safer chromosome naming with the argument chrStyle
-#' @param filePath The location of the bed file
-#' @inheritParams matchSeqStyle
-#' @importFrom data.table fread setDF
-#' @importFrom tools file_ext
-#' @importFrom rtracklayer import.bed
-#' @return a \code{\link{GRanges}} object
-#' @export
-#' @family utils
-#' @examples
-#' # path to example CageSeq data from hg19 heart sample
-#' cageData <- system.file("extdata", "cage-seq-heart.bed.bgz",
-#'                         package = "ORFik")
-#' fread.bed(cageData)
-#'
-fread.bed <- function(filePath, chrStyle = NULL) {
-
-  if (.Platform$OS.type == "unix") {
-    if (file.exists(filePath)) {
-      if (any(file_ext(filePath) %in% c("gzip", "gz", "bgz"))) {
-        bed <- bedToGR(setDF(
-          fread(cmd = paste("gunzip -c", filePath), sep = "\t")))
-      } else if (file_ext(filePath) == "bed"){
-        bed <- bedToGR(setDF(fread(filePath, sep = "\t")))
-      } else {
-        bed <- import.bed(con =  filePath)
-      }
-    } else {stop("Filepath specified does not name existing file.")}
+#' Internal GRanges loader from fst data.frame
+#' @param df a data.frame with columns minimum 4 columns:
+#' seqnames, start, strand and width.\cr
+#' Additional columns will be assigned as meta columns
+#' @return GRanges object
+#' @importFrom S4Vectors new2
+getGRanges <- function(df) {
+  if (!all(c("seqnames", "start", "width", "strand") %in% colnames(df)))
+    stop("df must at minimum have 4 columns named: seqnames, start, width and strand")
+  ranges <- new2("IRanges", start = df$start,
+                 width = df$width,
+                 NAMES = df$NAMES,
+                 elementMetadata = NULL,
+                 check = FALSE)
+  seqinfo <- Seqinfo(levels(df$seqnames))
+  df$NAMES <- NULL
+  if (ncol(df) == 4){
+    mcols <- NULL
   } else {
-    ## NB: Windows user will have slower loading
-    bed <- import.bed(con =  filePath)
-  }
-
-  return(matchSeqStyle(bed, chrStyle))
-}
-
-#' Export as bed12 format
-#'
-#' bed format for multiple exons per group, as transcripts.
-#' Can be use as alternative as a sparse .gff format for ORFs.
-#' Can be direct input for ucsc browser or IGV
-#'
-#' If grl has no names, groups will be named 1,2,3,4..
-#' @param grl A GRangesList
-#' @param file a character path to valid output file name
-#' @param rgb integer vector, default (0), either single integer or
-#' vector of same size as grl to specify groups. It is adviced to not
-#' use more than 8 different groups
-#' @return NULL (File is saved as .bed)
-#' @importFrom data.table fwrite
-#' @export
-#' @family utils
-#' @examples
-#' grl <- GRangesList(GRanges("1", c(1,3,5), "+"))
-#' # export.bed12(grl, "output/path/orfs.bed")
-export.bed12 <- function(grl, file, rgb = 0) {
-  if (!is.grl(class(grl))) stop("grl, must be of class GRangesList")
-  if (!is.character(file)) stop("file must be of class character")
-  if (length(rgb) != 1 & length(rgb) != length(grl))
-    stop("rgb must be integer of size 1 or length(grl)")
-  if (is.null(names(grl))) names(grl) <- seq.int(length(grl))
-  grl <- sortPerGroup(grl, ignore.strand = TRUE) # <- sort bed way!
-
-  dt.grl <- data.table(seqnames = seqnamesPerGroup(grl, FALSE))
-  dt.grl$start <- as.integer(firstStartPerGroup(grl,keep.names = FALSE) -1)
-  dt.grl$end <- lastExonEndPerGroup(grl, keep.names = FALSE)#non inclusive end
-  dt.grl$name <- names(grl)
-  dt.grl$score <- widthPerGroup(grl, keep.names = FALSE)
-  dt.grl$strand <- strandPerGroup(grl, FALSE)
-  dt.grl$thickStart <- dt.grl$start
-  dt.grl$thickEnd <- dt.grl$end
-  dt.grl$rgb <- if(length(rgb) > 1) rgb else rep(rgb, length(grl))
-  dt.grl$blockCount <- numExonsPerGroup(grl)
-  blockSizes <- paste(width(grl), collapse = ",")
-  names(blockSizes) <- NULL
-  dt.grl$blockSizes <- blockSizes
-  relativeStarts <- (start(grl) -1) - dt.grl$start
-  blockStarts <- paste(relativeStarts, collapse = ",")
-  names(blockStarts) <- NULL
-  dt.grl$blockStarts <- blockStarts
-
-  # Write without colnames
-  data.table::fwrite(x = dt.grl, file = file,
-                     sep = "\t", col.names = FALSE, row.names = FALSE,
-                     quote = FALSE)
-  return(invisible(NULL))
-}
-
-#' Custom bam reader
-#'
-#' Safer version that handles the most important error done.
-#' In the future will use a faster .bam loader for big .bam files in R.
-#' @param path a character path to .bam file. If paired end bam files,
-#' input must be a data.table with two columns: forward and reverse,
-#' or a character vector of length 2, forward will be index 1.
-#' @inheritParams matchSeqStyle
-#' @return a \code{\link{GAlignments}} object of bam file
-#' @export
-#' @family utils
-#' @examples
-#' bam_file <- system.file("extdata", "ribo-seq.bam", package = "ORFik")
-#' readBam(bam_file, "UCSC")
-readBam <- function(path, chrStyle = NULL) {
-  if (!(length(path) %in% c(1,2))) stop("readBam must have 1 or 2 bam files!")
-  if (is(path, "factor")) path <- as.character(path)
-  if (is(path, "data.table")) { # Will read pairs as combination
-    message("ORFik reads paired end bam in as combination: c(forward, reverse)")
-    return(matchSeqStyle(c(readGAlignments(path$forward),
-                           readGAlignments(path$reverse)), chrStyle))
-  }
-  if (length(path) == 2){ # Will read pairs as combination
-    message("ORFik reads paired end bam in as combination: c(forward, reverse)")
-    return(matchSeqStyle(c(readGAlignments(path[1]),
-                           readGAlignments(path[2])), chrStyle))
-  }
-
-  return(matchSeqStyle(readGAlignments(path), chrStyle))
-}
-
-#' Custom wig reader
-#'
-#' Given 2 wig files, first is forward second is reverse.
-#' Merge them and return as GRanges object.
-#' If they contain name reverse and forward, first and second order
-#' does not matter, it will search for forward and reverse.
-#'
-#' @param path a character path to two .wig files, or a data.table
-#' with 2 columns, (forward, filepath) and reverse, only 1 row.
-#' @inheritParams matchSeqStyle
-#' @importFrom rtracklayer import.wig
-#' @return a \code{\link{GRanges}} object of the file/s
-#' @family utils
-#'
-readWig <- function(path, chrStyle = NULL) {
-  if (is(path, "character")) {
-    if (length(path) != 2) stop("readWig must have 2 wig files,
-                              one forward strand and one reverse!")
-
-    forwardPath <- grep("forward|fwd", path)
-    reversePath <- grep("reverse|rev", path)
-    if (length(forwardPath) == 1 & length(reversePath) == 1){
-      forwardIndex <- forwardPath
-      reverseIndex <- reversePath
+    mcols <- df[,5:ncol(df)]
+    if (ncol(df) == 5) {
+      mcols <- data.frame(mcols)
+      names(mcols) <- names(df)[5]
     }
-
-    forward <- import.wig(path[forwardIndex])
-    reverse <- import.wig(path[reverseIndex])
-  } else if (is(path, "data.table")) {
-    if (!is.null(path$forward)) {
-      forward <- import.wig(path$forward)
-    } else forward <- import.wig(path$filepath)
-    reverse <- import.wig(path$reverse)
   }
-  strand(forward) <- "+"
-  strand(reverse) <- "-"
-  return(matchSeqStyle(c(forward, reverse), chrStyle))
+  mcols <- S4Vectors:::normarg_mcols(mcols, "GRanges", nrow(df))
+
+  new2("GRanges", seqnames = Rle(df$seqnames), ranges = ranges, strand = Rle(df$strand),
+       elementMetadata = mcols, seqinfo = seqinfo, check = FALSE)
+}
+
+#' Internal GAlignments loader from fst data.frame
+#' @param df a data.frame with columns minimum 4 columns:
+#' seqnames, start ("pos" in final GA object), strand and width.\cr
+#' Additional columns will be assigned as meta columns
+#' @return GAlignments object
+#' @importFrom S4Vectors new2
+getGAlignments <- function(df) {
+  if (!all(c("seqnames", "start", "cigar", "strand") %in% colnames(df)))
+    stop("df must at minimum have 4 columns named: seqnames, start, cigar and strand")
+  if (nrow(df) == 0) return(GenomicAlignments::GAlignments())
+  if (is.null(levels(df$seqnames)))
+    stop("df$seqnames must be factor!")
+
+  seqinfo <- Seqinfo(levels(df$seqnames))
+  names <- df$NAMES
+  if (!is.null(df$NAMES)) df$NAMES <- NULL
+  if (ncol(df) == 4){
+    mcols <- NULL
+  } else {
+    mcols <- df[,5:ncol(df)]
+    if (ncol(df) == 5) { # Hm... Is this safe ? What if a score is there ?
+      mcols <- data.frame(mcols)
+      names(mcols) <- names(df)[5]
+    }
+  }
+  df$strand <- factor(df$strand, levels = c("+", "-", "*"))
+  mcols <- S4Vectors:::normarg_mcols(mcols, "GRanges", nrow(df))
+  new2("GAlignments", NAMES = names, seqnames = Rle(df$seqnames), start = df$start,
+       cigar = as.character(df$cigar), strand = Rle(df$strand), elementMetadata = mcols,
+       seqinfo = seqinfo, check = FALSE)
+
+}
+
+#' Internal GAlignmentPairs loader from fst data.frame
+#' @param df a data.frame with columns minimum 6 columns:
+#' seqnames, start1/start2 (integers), cigar1/cigar2 and strand\cr
+#' Additional columns will be assigned as meta columns
+#' @return GAlignmentPairs object
+#' @importFrom S4Vectors new2
+getGAlignmentsPairs <- function(df) {
+  if (nrow(df) == 0) return(GenomicAlignments::GAlignmentPairs())
+
+  seqinfo <- Seqinfo(levels(df$seqnames))
+  names <- df$NAMES
+  if (!is.null(df$NAMES)) df$NAMES <- NULL
+  if (ncol(df) == 6){
+    mcols <- NULL
+  } else {
+    mcols <- df[,7:ncol(df)]
+    if (ncol(df) == 7) { # Hm... Is this safe ? What if a score is there ?
+      mcols <- data.frame(mcols)
+      names(mcols) <- names(df)[7]
+    }
+  }
+  mcols <- S4Vectors:::normarg_mcols(mcols, "GRanges", nrow(df))
+  # reverse strand for last
+  strand2 <- strandTemp <- df$strand <-
+    factor(df$strand, levels = c("+", "-", "*"))
+  strandTemp[strand2 == "+"] <- "-"
+  strandTemp[strand2 == "-"] <- "+"
+  strand2 <- strandTemp
+  new2("GAlignmentPairs",
+       first = new2("GAlignments", NAMES = names, seqnames = Rle(df$seqnames), start = df$start1,
+        cigar = as.character(df$cigar1), strand = Rle(df$strand),
+        seqinfo = seqinfo, check = FALSE,
+        elementMetadata = DataFrame(data.frame(matrix(nrow = nrow(df), ncol = 0)))),
+       last = new2("GAlignments", NAMES = names, seqnames = Rle(df$seqnames), start = df$start2,
+             cigar = as.character(df$cigar2), strand = Rle(factor(strand2, levels)),
+             seqinfo = seqinfo, check = FALSE,
+             elementMetadata = DataFrame(data.frame(matrix(nrow = nrow(df), ncol = 0)))),
+       isProperPair = rep(TRUE, nrow(df)),
+       elementMetadata = mcols, check = FALSE)
 }
 
 #' Find pair of forward and reverse strand wig / bed files and
-#' paired end bam files
+#' paired end bam files split in two
 #'
 #' @param paths a character path at least one .wig / .bed file
 #' @param f Default (c("forward", "fwd")
@@ -222,52 +164,6 @@ findNGSPairs <- function(paths, f = c("forward", "fwd"),
   return(paths)
 }
 
-#' Store GRanges object as .bedo
-#'
-#' .bedo is .bed ORFik, an optimized bed format for coverage reads with
-#' read lengths .bedo is a text based format with columns (6 maximum):\cr
-#' 1. chromosome\cr 2. start\cr 3. end\cr 4. strand\cr
-#' 5. ref width (cigar # M's, match/mismatch total)\cr
-#' 6. duplicates of that read\cr
-#'
-#' Positions are 1-based, not 0-based as .bed.
-#' End will be removed if all ends equals all starts.
-#' Import with import.bedo
-#' @param object a GRanges object
-#' @param out a character, location on disc (full path)
-#' @return NULL, object saved to disc
-#' @importFrom data.table fwrite
-#'
-export.bedo <- function(object, out) {
-  if (!is(object, "GRanges")) stop("object must be GRanges")
-  dt <- setDT(as.data.frame(object))
-  uwidths <- unique(dt$width)
-  if (all(uwidths == 1)) dt$end <- NULL
-  dt$width <- NULL
-  fwrite(dt, file = out)
-}
-
-#' Load GRanges object from .bedo
-#'
-#' .bedo is .bed ORFik, an optimized bed format for coverage reads with read lengths
-#' .bedo is a text based format with columns (6 maximum):\cr
-#' 1. chromosome\cr 2. start\cr 3. end\cr 4. strand\cr
-#' 5. ref width (cigar # M's, match/mismatch total)\cr
-#' 6. duplicates of that read\cr
-#'
-#' Positions are 1-based, not 0-based as .bed.
-#' export with export.bedo
-#' @param path a character, location on disc (full path)
-#' @return GRanges object
-#' @importFrom tools file_ext
-#' @export
-import.bedo <- function(path) {
-  if (file_ext(path) != "bedo") stop("import.bedo can only load .bedo files!")
-  dt <- fread(input = path)
-  if (is.null(dt$end)) dt$end <- dt$start
-  return(makeGRangesFromDataFrame(dt, keep.extra.columns = TRUE))
-}
-
 #' Remove file extension of path
 #'
 #' Allows removal of compression
@@ -291,79 +187,6 @@ remove.file_ext <- function(path, basename = FALSE) {
     out <- c(out, new)
   }
   return(ifelse(basename, basename(out), out))
-}
-
-#' Load any type of sequencing reads
-#'
-#' Wraps around rtracklayer::import and tries to speed up loading with the
-#' use of data.table. Supports gzip, gz, bgz compression formats.
-#' Also safer chromosome naming with the argument chrStyle
-#'
-#' NOTE: For wig you can send in 2 files, so that it automaticly merges
-#' forward and reverse stranded objects. You can also just send 1 wig file,
-#' it will then have "*" as strand.
-#'
-#' @param path a character path to file (1 or 2 files),
-#'  or data.table with 2 colums(forward&reverse)
-#'  or a GRanges/Galignment object etc. If it is
-#'  ranged object it will presume to be
-#'  already loaded, so will return the object as it is.
-#' @inheritParams matchSeqStyle
-#' @importFrom tools file_ext
-#' @importFrom tools file_path_sans_ext
-#' @importFrom rtracklayer import
-#' @return a \code{\link{GAlignments}}/\code{\link{GRanges}} object,
-#'  depending on input.
-#' @export
-#' @family utils
-#' @examples
-#' bam_file <- system.file("extdata", "ribo-seq.bam", package = "ORFik")
-#' fimport(bam_file)
-#' # Certain chromosome naming
-#' fimport(bam_file, "NCBI")
-#'
-fimport <- function(path, chrStyle = NULL) {
-  if (is(path, "data.table")) {
-    if (ncol(path) == 2 & colnames(path) == c("forward", "reverse")) {
-      path <- c(path$forward, path$reverse)
-      path <- path[path != ""]
-    } else stop("When path is data.table,",
-                "it must have 2 columns (forward&reverse)")
-  }
-  if (is.character(path)) {
-    if (all(file.exists(path))) {
-      fext <- file_ext(path)
-      compressions <- c("gzip", "gz", "bgz", "zip")
-      areCompressed <- fext %in% compressions
-      fext[areCompressed] <- file_ext(file_path_sans_ext(path[areCompressed],
-                                               compression = FALSE))
-      if (length(path) > 1) { # Multiple file paths
-        if (all(fext %in% c("wig"))) {
-          return(readWig(path, chrStyle))
-        } else if (all(fext %in% c("bam"))) {
-          stop("only wig format allowed for multiple files!,
-               is this paired end bam?")
-        } else stop("only wig format allowed for multiple files!")
-      } else { # Only 1 file path given
-        if (fext == "bam") {
-          return(readBam(path, chrStyle))
-        } else if (fext == "bed" |
-                   file_ext(file_path_sans_ext(path,
-                                               compression = TRUE)) == "bed" |
-                   file_ext(file_path_sans_ext(path, compression = FALSE))
-                                                                  == "bed") {
-          return(fread.bed(path, chrStyle))
-        } else if (fext == "bedo") {
-          return(matchSeqStyle(import.bedo(path), chrStyle))
-        } else return(matchSeqStyle(import(path), chrStyle))
-      }
-    } else stop(paste0(path, "does not exist as File/Files!"))
-  } else if (is.gr_or_grl(path) | is(path, "GAlignments")) {
-    return(matchSeqStyle(path, chrStyle))
-  } else {
-    stop("path must be either a valid character",
-         " filepath or ranged object.")
-  }
 }
 
 #' A wrapper for seqlevelsStyle
@@ -401,7 +224,8 @@ matchSeqStyle <- function(range, chrStyle = NULL) {
 #' Keep only the ones that overlap within the grl ranges.
 #' Also sort them in the end
 #' @inheritParams validSeqlevels
-#' @return the reads as GRanges or GAlignment
+#' @return the reads as GRanges,  GAlignment or GAlignmentPairs
+#' @importFrom GenomicAlignments first
 #' @family utils
 #'
 optimizeReads <- function(grl, reads) {
@@ -409,7 +233,10 @@ optimizeReads <- function(grl, reads) {
   reads <- keepSeqlevels(reads, seqMatch, pruning.mode = "coarse")
 
   reads <- reads[countOverlaps(reads, grl, type = "within") > 0]
-  reads <- sort(reads)
+  reads <- if (is(reads, "GAlignmentPairs")) {
+    reads <- reads[order(GenomicAlignments::first(reads))]
+    } else reads <- sort(reads)
+
   if (length(reads) == 0) warning("No reads left in 'reads' after",
                                     "optimisation!")
 
@@ -418,17 +245,14 @@ optimizeReads <- function(grl, reads) {
 
 #' Convert a GRanges Object to 1 width reads
 #'
-#' There are 5 ways of doing this
-#' 1. Take 5' ends, reduce away rest (5prime)
-#' 2. Take 3' ends, reduce away rest (3prime)
-#' 3. Tile to 1-mers and include all (tileAll)
-#' 4. Take middle point per GRanges (middle)
-#' 5. Get original with metacolumns (None)
-#'
+#' There are 5 ways of doing this\cr
+#' 1. Take 5' ends, reduce away rest (5prime)\cr
+#' 2. Take 3' ends, reduce away rest (3prime)\cr
+#' 3. Tile to 1-mers and include all (tileAll)\cr
+#' 4. Take middle point per GRanges (middle)\cr
+#' 5. Get original with metacolumns (None)\cr
 #' You can also do multiple at a time, then output is GRangesList, where
-#' each list group is the operation (5prime is [1], 3prime is [2] etc)
-#'
-#'
+#' each list group is the operation (5prime is [1], 3prime is [2] etc)\cr
 #' Many other ways to do this have their own functions, like startSites and
 #' stopSites etc.
 #' To retain information on original width, set addSizeColumn to TRUE.
@@ -436,89 +260,193 @@ optimizeReads <- function(grl, reads) {
 #' TRUE. This will give you a score column with how many duplicated reads there
 #' were in the specified region.
 #'
-#' NOTE: Does not support paired end reads for the moment!
-#' @param gr GRanges, GAlignment Object to reduce
+#' NOTE: For special case of GAlignmentPairs, 5prime will only use left (first)
+#' 5' end and read and 3prime will use only right (last) 3' end of read
+#' in pair. tileAll and middle can possibly find poinst that are not in the
+#' reads since: lets say pair is 1-5 and 10-15, middle is 7, which is not in
+#' the read.
+#'
+#' @param gr GRanges, GAlignment or GAlignmentPairs object to reduce.
 #' @param method the method to reduce ranges, see info. (5prime defualt)
 #' @param addScoreColumn logical (FALSE), if TRUE, add a score column that
-#'  sums up the hits per unique range This will make each read unique, so
-#'  that each read is 1 time, and score column gives the number of hits.
+#'  sums up the hits per unique range. This will make each read unique, so
+#'  that each read is 1 time, and score column gives the number of
+#'  collapsed hits.
 #'  A useful compression. If addSizeColumn is FALSE, it will not differentiate
 #'  between reads with same start and stop, but different length. If
-#'  addSizeColumn is FALSE, it will remove it.
+#'  addSizeColumn is FALSE, it will remove it. Collapses after conversion.
 #' @param addSizeColumn logical (FALSE), if TRUE, add a size column that
 #'  for each read, that gives original width of read. Useful if you need
 #'  original read lengths. This takes care of soft clips etc.
+#'  If collapsing reads, each unique range will be grouped also by size.
+#' @param reuse.score.column logical (TRUE), if addScoreColumn is TRUE,
+#'  and a score column exists, will sum up the scores to create a new score.
+#'  If FALSE, will skip old score column and create new according to number
+#'  of replicated reads after conversion.
+#'  If addScoreColumn is FALSE, this argument is ignored.
 #' @inheritParams readWidths
-#' @return  Converted GRanges object
+#' @importFrom GenomicAlignments first
+#' @importFrom GenomicAlignments last
+#' @return Converted GRanges object
 #' @export
 #' @family utils
+#' @examples
+#' gr <- GRanges("chr1", 1:10,"+")
+#' # 5 prime ends
+#' convertToOneBasedRanges(gr)
+#' # is equal to convertToOneBasedRanges(gr, method = "5prime")
+#' # 3 prime ends
+#' convertToOneBasedRanges(gr, method = "3prime")
+#' # With lengths
+#' convertToOneBasedRanges(gr, addSizeColumn = TRUE)
+#' # With score (# of replicates)
+#' gr <- rep(gr, 2)
+#' convertToOneBasedRanges(gr, addSizeColumn = TRUE, addScoreColumn = TRUE)
 #'
 convertToOneBasedRanges <- function(gr, method = "5prime",
                                     addScoreColumn = FALSE,
                                     addSizeColumn = FALSE,
                                     after.softclips = TRUE,
-                                    along.reference = FALSE) {
-  if (is(gr, "GAlignmentPairs")) stop("Paired end reads not supported,
-                                      load as GAlignments instead!")
-
+                                    along.reference = FALSE,
+                                    reuse.score.column = TRUE) {
   if (addSizeColumn & is.null(mcols(gr)$size)) {
     mcols(gr) <- S4Vectors::DataFrame(mcols(gr),
                                       size = readWidths(gr, after.softclips,
                                                         along.reference))
   }
-  if (addScoreColumn) {
-    dt <- data.table(seqnames = as.character(seqnames(gr)),
-                     start = start(gr),
-                     end = end(gr),
-                     strand = as.character(strand(gr)))
-    if (addSizeColumn) {
-      dt[, size := mcols(gr)$size]
-      dt <- dt[, .(score = .N), .(seqnames, start, end, strand, size)]
-    } else {
-      dt <- dt[, .(score = .N), .(seqnames, start, end, strand)]
-    }
-    gr <- makeGRangesFromDataFrame(dt, keep.extra.columns = TRUE)
-  }
-
-  gr <- GRanges(gr)
+  # Convert to positions wanted
+  if (!is(gr, "GRanges")) gr <- GRanges(gr)
   if (method == "5prime") {
     gr <- resize(gr, width = 1, fix = "start")
   } else if(method == "3prime") {
     gr <- resize(gr, width = 1, fix = "end")
-  } else if(method == "None") {
+  } else if(method %in% c("None", "none")) {
   } else if(method == "tileAll") {
     gr <- unlist(tile(gr, width = 1), use.names = FALSE)
   } else if (method == "middle") {
     ranges(gr) <- IRanges(start(gr) + ceiling((end(gr) - start(gr)) / 2),
                           width = 1)
   } else stop("invalid type: must be 5prime, 3prime, None, tileAll or middle")
-
+  # Collapse after conversion
+  if (addScoreColumn) {
+    gr <- collapseDuplicatedReads(gr, addSizeColumn = addSizeColumn,
+                            reuse.score.column = reuse.score.column)
+  }
   return(gr)
 }
 
-#' Convenience wrapper for Rsamtools FaFile
+#' Merge reads by sum of existing scores
 #'
-#' Get fasta file object, to find sequences in file.
-#' @param faFile \code{\link{FaFile}}, BSgenome, fasta/index file path or an
-#' ORFik \code{\link{experiment}}. This file used to find the
-#' transcript sequences
-#' @importFrom Rsamtools FaFile
-#' @importFrom methods is
-#' @return a \code{\link{FaFile}} or BSgenome
-#' @family utils
-#' @export
+#' If you have multiple reads a same location but different read lengths,
+#' specified in meta column "size", it will sum up the scores
+#' (number of replicates) for all reads at that position
+#' @param x a GRanges object
+#' @return merged GRanges object
+#' @examples
+#' gr_s1 <- rep(GRanges("chr1", 1:10,"+"), 2)
+#' gr_s2 <- GRanges("chr1", 1:12,"+")
+#' gr2 <- GRanges("chr1", 21:40,"+")
+#' gr <- c(gr_s1, gr_s2, gr2)
+#' res <- convertToOneBasedRanges(gr,
+#'    addScoreColumn = TRUE, addSizeColumn = TRUE)
+#' ORFik:::collapse.by.scores(res)
 #'
-findFa <- function(faFile) {
-  if (is.character(faFile)) {
-    if (file.exists(faFile)) {
-      return(FaFile(faFile))
-    } else {
-      stop("faFile does not name a valid fasta/index file")
-    }
-  } else if (is(faFile, "FaFile") || is(faFile, "BSgenome")) {
-    return(faFile)
-  } else if (is(faFile, "experiment")) {
-    return(FaFile(faFile@fafile))
-  }
-  stop("faFile must be FaFile, BSgenome, valid filePath, or ORFik experiment")
+collapse.by.scores <- function(x) {
+  dt <- data.table(seqnames = as.character(seqnames(x)),
+                   start = start(ranges(x)),
+                   end = end(ranges(x)),
+                   strand = as.character(strand(x)),
+                   score = mcols(x)$score)
+  dt <- dt[, .(score = sum(score)), .(seqnames, start, end, strand)]
+  # TODO change makeGRangesFromDataFrame to internal fast function
+  return(makeGRangesFromDataFrame(dt, keep.extra.columns = TRUE))
 }
+
+#' Collapse duplicated reads
+#'
+#' For every GRanges, GAlignments read, with the same:
+#' seqname, start, (cigar) / width and strand, collapse and give a new
+#' meta column called "score", which contains the number of duplicates
+#' of that read. If score column already exists, will return input object!
+#' @param x a GRanges, GAlignments or GAlignmentPairs object
+#' @param ... alternative arguments. addScoreColumn = TRUE, if FALSE,
+#' only collapse and not add score column.
+#' @return a GRanges, GAlignments or GAlignmentPairs object, same as input
+#' @export
+#' @examples
+#' gr <- rep(GRanges("chr1", 1:10,"+"), 2)
+#' collapseDuplicatedReads(gr)
+setGeneric("collapseDuplicatedReads", function(x,...) standardGeneric("collapseDuplicatedReads"))
+
+#' @inherit collapseDuplicatedReads
+#' @param addScoreColumn = TRUE, if FALSE,
+#' only collapse and not keep score column.
+#' @inheritParams convertToOneBasedRanges
+setMethod("collapseDuplicatedReads", "GRanges",
+          function(x, addScoreColumn = TRUE, addSizeColumn = FALSE,
+                   reuse.score.column = TRUE) {
+    if (addSizeColumn) {
+      if (!("size" %in% colnames(mcols(x))))
+        stop("addSizeColumn is TRUE, and no size column found!")
+    }
+
+    dt <- data.table(seqnames = as.character(seqnames(x)),
+                     start = start(ranges(x)),
+                     end = end(ranges(x)),
+                     strand = as.character(strand(x)))
+
+    if (reuse.score.column & ("score" %in% colnames(mcols(x)))) { # reuse
+      dt[, score := mcols(x)$score]
+      if (addSizeColumn) {
+        dt[, size := mcols(x)$size]
+        dt <- dt[, .(score = sum(score)), .(seqnames, start, end, strand, size)]
+      } else {
+        dt <- dt[, .(score = sum(score)), .(seqnames, start, end, strand)]
+      }
+    } else { # Do not reuse or "score" does not exist
+      if (addSizeColumn) {
+        dt[, size := mcols(x)$size]
+        dt <- dt[, .(score = .N), .(seqnames, start, end, strand, size)]
+      } else {
+        dt <- dt[, .(score = .N), .(seqnames, start, end, strand)]
+      }
+    }
+    if (!addScoreColumn) dt$score <- NULL
+    # TODO change makeGRangesFromDataFrame to internal fast function
+    return(makeGRangesFromDataFrame(dt, keep.extra.columns = TRUE))
+})
+
+#' @inherit collapseDuplicatedReads
+#' @param addScoreColumn = TRUE, if FALSE,
+#' only collapse and not add score column.
+setMethod("collapseDuplicatedReads", "GAlignments",
+          function(x, addScoreColumn = TRUE) {
+            if ("score" %in% colnames(mcols(x))) return(x)
+
+            dt <- data.table(seqnames = factor(seqnames(x)),
+                             start = start(ranges(x)),
+                             cigar = cigar(x),
+                             strand = factor(strand(x)))
+            dt <- dt[, .(score = .N), .(seqnames, start, cigar, strand)]
+            if (!addScoreColumn) dt$score <- NULL
+            return(getGAlignments(dt))
+          })
+
+#' @inherit collapseDuplicatedReads
+#' @param addScoreColumn = TRUE, if FALSE,
+#' only collapse and not add score column.
+setMethod("collapseDuplicatedReads", "GAlignmentPairs",
+          function(x, addScoreColumn = TRUE) {
+            if ("score" %in% colnames(mcols(x))) return(x)
+
+            dt <- data.table(seqnames = factor(x@first@seqnames),
+                             start1 = x@first@start,
+                             start2 = x@last@start,
+                             cigar1 = factor(x@first@cigar),
+                             cigar2 = factor(x@last@cigar),
+                             strand = factor(x@first@strand))
+            dt <- dt[, .(score = .N), .(seqnames, start1, start2,
+                                        cigar1, cigar2, strand)]
+            if (!addScoreColumn) dt$score <- NULL
+            return(getGAlignmentsPairs(dt))
+          })

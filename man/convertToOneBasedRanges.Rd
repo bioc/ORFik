@@ -10,24 +10,27 @@ convertToOneBasedRanges(
   addScoreColumn = FALSE,
   addSizeColumn = FALSE,
   after.softclips = TRUE,
-  along.reference = FALSE
+  along.reference = FALSE,
+  reuse.score.column = TRUE
 )
 }
 \arguments{
-\item{gr}{GRanges, GAlignment Object to reduce}
+\item{gr}{GRanges, GAlignment or GAlignmentPairs object to reduce.}
 
 \item{method}{the method to reduce ranges, see info. (5prime defualt)}
 
 \item{addScoreColumn}{logical (FALSE), if TRUE, add a score column that
-sums up the hits per unique range This will make each read unique, so
-that each read is 1 time, and score column gives the number of hits.
+sums up the hits per unique range. This will make each read unique, so
+that each read is 1 time, and score column gives the number of
+collapsed hits.
 A useful compression. If addSizeColumn is FALSE, it will not differentiate
 between reads with same start and stop, but different length. If
-addSizeColumn is FALSE, it will remove it.}
+addSizeColumn is FALSE, it will remove it. Collapses after conversion.}
 
 \item{addSizeColumn}{logical (FALSE), if TRUE, add a size column that
 for each read, that gives original width of read. Useful if you need
-original read lengths. This takes care of soft clips etc.}
+original read lengths. This takes care of soft clips etc.
+If collapsing reads, each unique range will be grouped also by size.}
 
 \item{after.softclips}{logical (TRUE), include softclips in width. Does not
 apply if along.reference is TRUE.}
@@ -37,36 +40,58 @@ by default width 28, but if along.reference is TRUE, it will be 26.
 The length of the read along the reference. Also "1D20M" will be
 21 if by along.reference is TRUE. Intronic regions (cigar: N) will
 be removed. So: "1M200N19M" is 20, not 220.}
+
+\item{reuse.score.column}{logical (TRUE), if addScoreColumn is TRUE,
+and a score column exists, will sum up the scores to create a new score.
+If FALSE, will skip old score column and create new according to number
+of replicated reads after conversion.
+If addScoreColumn is FALSE, this argument is ignored.}
 }
 \value{
 Converted GRanges object
 }
 \description{
-There are 5 ways of doing this
-1. Take 5' ends, reduce away rest (5prime)
-2. Take 3' ends, reduce away rest (3prime)
-3. Tile to 1-mers and include all (tileAll)
-4. Take middle point per GRanges (middle)
-5. Get original with metacolumns (None)
-}
-\details{
+There are 5 ways of doing this\cr
+1. Take 5' ends, reduce away rest (5prime)\cr
+2. Take 3' ends, reduce away rest (3prime)\cr
+3. Tile to 1-mers and include all (tileAll)\cr
+4. Take middle point per GRanges (middle)\cr
+5. Get original with metacolumns (None)\cr
 You can also do multiple at a time, then output is GRangesList, where
-each list group is the operation (5prime is [1], 3prime is [2] etc)
-
-
+each list group is the operation (5prime is [1], 3prime is [2] etc)\cr
 Many other ways to do this have their own functions, like startSites and
 stopSites etc.
 To retain information on original width, set addSizeColumn to TRUE.
 To compress data, 1 GRanges object per unique read, set addScoreColumn to
 TRUE. This will give you a score column with how many duplicated reads there
 were in the specified region.
+}
+\details{
+NOTE: For special case of GAlignmentPairs, 5prime will only use left (first)
+5' end and read and 3prime will use only right (last) 3' end of read
+in pair. tileAll and middle can possibly find poinst that are not in the
+reads since: lets say pair is 1-5 and 10-15, middle is 7, which is not in
+the read.
+}
+\examples{
+gr <- GRanges("chr1", 1:10,"+")
+# 5 prime ends
+convertToOneBasedRanges(gr)
+# is equal to convertToOneBasedRanges(gr, method = "5prime")
+# 3 prime ends
+convertToOneBasedRanges(gr, method = "3prime")
+# With lengths
+convertToOneBasedRanges(gr, addSizeColumn = TRUE)
+# With score (# of replicates)
+gr <- rep(gr, 2)
+convertToOneBasedRanges(gr, addSizeColumn = TRUE, addScoreColumn = TRUE)
 
-NOTE: Does not support paired end reads for the moment!
 }
 \seealso{
 Other utils: 
 \code{\link{bedToGR}()},
 \code{\link{export.bed12}()},
+\code{\link{export.wiggle}()},
 \code{\link{fimport}()},
 \code{\link{findFa}()},
 \code{\link{fread.bed}()},

@@ -19,7 +19,8 @@ transcriptWindow(
   returnPlot = is.null(outdir),
   dfr = NULL,
   idName = "",
-  format = ".png"
+  format = ".png",
+  type = "bedoc"
 )
 }
 \arguments{
@@ -56,6 +57,11 @@ and same experiment, like splitting transcripts in two groups like
 targets / nontargets etc. (default: "")}
 
 \item{format}{default (".png"), do ".pdf" if you want as pdf}
+
+\item{type}{a character(default: "bedoc"), load files in experiment
+or some precomputed variant, either "bedo", "bedoc", "pshifted" or default.
+These are made with ORFik:::simpleLibs(), shiftFootprintsByExperiment()..
+Will load default if bedoc is not found}
 }
 \value{
 NULL, or ggplot object if returnPlot is TRUE
@@ -79,3 +85,9 @@ df <- read.experiment(template)
 loadRegions(df) # Load leader, cds and trailers as GRangesList
 #transcriptWindow(leaders, cds, trailers, df, outdir = "directory_to_save")
 }
+\seealso{
+Other experiment plots: 
+\code{\link{transcriptWindow1}()},
+\code{\link{transcriptWindowPer}()}
+}
+\concept{experiment plots}

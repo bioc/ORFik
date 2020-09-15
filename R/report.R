@@ -1,23 +1,30 @@
 #' A post Alignment quality control of reads
 #'
-#' From this report you will get a summary csv table, with distribution of
-#' aligned reads, overlap of reads to transcript regions, like
-#' leader, cds, trailer, tRNAs, rRNAs, snoRNAs etc.
-#' It will also make you some correlation plots and meta coverage plots,
+#' This report consists of several steps:\cr
+#' 1. From this report you will get a summary csv table, with distribution of
+#' aligned reads and overlap counts over transcript regions like:
+#' leader, cds, trailer, lincRNAs, tRNAs, rRNAs, snoRNAs etc. It will be called
+#' STATS.csv. And can be imported with \code{\link{QCstats}} function.\cr
+#' 2. It will also make correlation plots and meta coverage plots,
 #' so you get a good understanding of how good the quality of your NGS
-#' data production + aligner step were.
-#' You will also get count tables over mrna, leader, cds and trailer
-#' separately, similar to HTseq count tables.
-#'
-#'
+#' data production + aligner step were.\cr
+#' 3. Count tables are produced, similar to HTseq count tables.
+#' Over mrna, leader, cds and trailer separately. This tables
+#' are stored as \code{\link{SummarizedExperiment}}, for easy loading into
+#' DEseq, conversion to normalized fpkm values,
+#' or collapsing replicates in an experiment.
+#' And can be imported with \code{\link{countTable}} function.\cr
 #' Everything will be outputed in the directory of your NGS data,
 #' inside the folder ./QC_STATS/, relative to data location in 'df'.
-#' You can specify new out location with out.dir if you want.
-#'
-#' To make a ORFik experiment, see ?ORFik::experiment
+#' You can specify new out location with out.dir if you want.\cr
+#' To make a ORFik experiment, see ?ORFik::experiment \cr
+#' To see some normal mrna coverage profiles of different RNA-seq protocols:
+#' https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4310221/figure/F6/
 #' @param df an ORFik \code{\link{experiment}}
 #' @param out.dir optional output directory, default: dirname(df$filepath[1])
 #' @return NULL (objects stored to disc)
+#' @family QC report
+#' @importFrom utils write.csv
 #' @export
 #' @examples
 #' # 1. Pick directory
@@ -33,8 +40,8 @@
 #' df <- read.experiment(template)
 #' # Save with: save.experiment(df, file = "path/to/save/experiment.csv")
 #'
-#' # ORFikQC(df)
-ORFikQC <- function(df, out.dir = dirname(df$filepath[1])) {
+#' # QCreport(df)
+QCreport <- function(df, out.dir = dirname(df$filepath[1])) {
   # When experiment is ready, everything down from here is automatic
   message("Started ORFik QC report:")
   validateExperiments(df)
@@ -47,31 +54,17 @@ ORFikQC <- function(df, out.dir = dirname(df$filepath[1])) {
 
   txdb <- loadTxdb(df)
   loadRegions(txdb, parts = c("mrna", "leaders", "cds", "trailers", "tx"))
-  outputLibs(df, leaders, type = "bedo")
+  outputLibs(df, leaders, type = "ofst")
   libs <- bamVarName(df)
-  if (is(get(libs[1]), "GAlignments")) {
+  if (is(get(libs[1]), "GAlignments") | is(get(libs[1]), "GAlignmentPairs")) {
     simpleLibs(df, NULL) # Speedup by reducing unwanted information
   }
-
-  # Special regions rRNA etc..
-  if (!(file_ext(df@txdb) %in% c("gtf", "gff", "gff3", "gff2"))) {
-    # Try to use reference of sqlite
-    if (!(file_ext(metadata(txdb)[3,2]) %in%
-          c("gtf", "gff", "gff3", "gff2"))) {
-      stop("Could not find valid gtf / gff file, only data base object!")
-    }
-    gff.df <- import(metadata(txdb)[3,2])
-  } else gff.df <- import(df@txdb)
-  types <- unique(gff.df$transcript_biotype)
-  types <-types[types %in% c("Mt_rRNA", "snRNA", "snoRNA", "lincRNA", "miRNA",
-                             "rRNA", "ribozyme", "Mt_tRNA")]
-
   # Make count tables
   message("Making count tables for region:")
   countDir <- paste0(stats_folder, "countTable_")
   for (region in c("mrna", "leaders", "cds", "trailers")) {
     message(region)
-    path <- paste0(countDir,region)
+    path <- paste0(countDir, region)
     dt <- makeSummarizedExperimentFromBam(df, region = region,
                                           geneOrTxNames = "tx",
                                           longestPerGene = FALSE,
@@ -79,21 +72,28 @@ ORFikQC <- function(df, out.dir = dirname(df$filepath[1])) {
     assign(paste0("ct_", region), colSums(assay(dt)))
   }
 
+  # Special regions rRNA etc..
+  gff.df <- importGtfFromTxdb(txdb)
+  types <- unique(gff.df$transcript_biotype)
+  types <-types[types %in% c("Mt_rRNA", "snRNA", "snoRNA", "lincRNA", "miRNA",
+                             "rRNA", "Mt_rRNA", "ribozyme", "Mt_tRNA")]
   # Put into csv, the standard stats
-
   message("Making summary counts for lib:")
+  sCo <- function(region, lib) {
+    weight <- "score"
+    if (!(weight %in% colnames(mcols(lib))))
+      weight <- NULL
+    return(sum(countOverlapsW(region, lib, weight = weight)))
+  }
   for (s in libs) { # For each library
     message(s)
     lib <- get(s)
     # Raw stats
-    res <- data.frame(Sample = s, Raw_reads = 2e7,
+    res <- data.frame(Sample = s, Raw_reads = NA,
                       Aligned_reads = length(lib))
     res$ratio_aligned_raw = res$Aligned_reads / res$Raw_reads
 
     # mRNA region stats
-    sCo <- function(region, lib) {
-      return(sum(countOverlaps(region, lib)))
-    }
     res_mrna <- data.table(mRNA = get("ct_mrna")[s],
                            LEADERS = get("ct_leaders")[s],
                            CDS = get("ct_cds")[s],
@@ -141,16 +141,20 @@ ORFikQC <- function(df, out.dir = dirname(df$filepath[1])) {
                            function(p) grep(pattern = p, x = df$filepath)))
     notMatch <-
       !all(seq(nrow(df)) %in% order) | length(seq(nrow(df))) != length(order)
-    if (notMatch) { # did not match all
+    if (length(order) != nrow(raw_data)) {
+      message(paste0("ORFik experiment has ", nrow(df), "libraries"))
+      message(paste0("Trim folder had", nrow(raw_data), "libraries"))
+      print(raw_data); stop()
+    } else if (notMatch) { # did not match all
       message("Could not find raw read count of your data, setting to 20 M")
     } else {
       finals[order,]$Raw_reads <- raw_data$raw_reads
-      finals$ratio_raw_aligned = round(finals$Aligned_reads /
+      finals$ratio_aligned_raw = round(finals$Aligned_reads /
                                          finals$Raw_reads, 4)
     }
     setwd(oldDir)
   } else {
-    message("Could not find raw read counts of data, setting to 20 M")
+    message("Could not find raw read counts of data, setting to NA")
     message(paste0("No folder called:", paste0(exp_dir, "/../trim/")))
   }
 
@@ -161,18 +165,29 @@ ORFikQC <- function(df, out.dir = dirname(df$filepath[1])) {
   message(paste("Everything done, saved QC to:", stats_folder))
 }
 
+# Keep for legacy purpose for now
+
+#' @inherit QCreport
+#' @export
+ORFikQC <- QCreport
+
 #' Correlation and coverage plots for ORFikQC
 #'
 #' Correlation plots default to mRNA covering reads.
-#' Meta plots defaults to leader, cds, trailer.
-#'
+#' Meta plots defaults to leader, cds, trailer.\cr
 #' Output will be stored in same folder as the
-#' libraries in df.
+#' libraries in df.\cr
+#' Correlation plots will be raw count correlation and
+#' log2(count + 1) correlation between samples.
+#'
+#' Is part of \code{\link{QCreport}}
 #' @param df an ORFik \code{\link{experiment}}
 #' @param region a character (default: mrna), make raw count matrices of
 #' whole mrnas or one of (leaders, cds, trailers)
-#' @param stats_folder directory to save
-#' @return NULL (objects stored to disc)
+#' @param stats_folder directory to save, default:
+#' paste0(dirname(df$filepath[1]), "/QC_STATS/")
+#' @return invisible(NULL) (objects stored to disc)
+#' @family QC report
 #' @importFrom GGally ggpairs
 #' @importFrom AnnotationDbi metadata
 QCplots <- function(df, region = "mrna",
@@ -188,7 +203,7 @@ QCplots <- function(df, region = "mrna",
                          columns = 1:ncol(data_for_pairs))
   ggsave(pasteDir(stats_folder, "cor_plot.png"), paired_plot,
          height=400, width=400, units = 'mm', dpi=300)
-  paired_plot <- ggpairs(as.data.frame(log2(data_for_pairs)),
+  paired_plot <- ggpairs(as.data.frame(log2(data_for_pairs + 1)),
                          columns = 1:ncol(data_for_pairs))
   ggsave(pasteDir(stats_folder, "cor_plot_log2.png"), paired_plot,
          height=400, width=400, units = 'mm', dpi=300)
@@ -205,4 +220,30 @@ QCplots <- function(df, region = "mrna",
                    trailers[txNames], df = df, outdir = stats_folder,
                    allTogether = TRUE,
                    scores = c("sum", "zscore", "transcriptNormalized"))
+  transcriptWindow1(df = df, outdir = stats_folder,
+                    scores = c("sum", "zscore", "transcriptNormalized"))
+  return(invisible(NULL))
+}
+
+#' Load QC Statistics report
+#'
+#' @inheritParams QCreport
+#' @param path path to QC statistics report, default:
+#' paste0(dirname(df$filepath[1]), "/QC_STATS/STATS.csv")
+#' @family QC report
+#' @return data.table of QC report or NULL if not exists
+#' @export
+#' @examples
+#' # df <- read.experiment("experiment/path")
+#'
+#' ## First make QC report
+#' # QCreport(df)
+#' # stats <- QCstats(df)
+QCstats <- function(df, path = paste0(dirname(df$filepath[1]),
+                                       "/QC_STATS/STATS.csv")) {
+  if (!file.exists(path)) {
+    message("No QC report made, run QCreport. Or wrong path given.")
+    return(invisible(NULL))
+  }
+  return(fread(path, header = TRUE))
 }

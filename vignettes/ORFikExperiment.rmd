@@ -1,5 +1,5 @@
 ---
-title: "ORFikExperiment"
+title: "Data management"
 author: "Haakon Tjeldnes & Kornel Labun"
 date: "`r BiocStyle::doc_date()`"
 package: "`r pkg_ver('ORFik')`"
@@ -12,16 +12,16 @@ vignette: >
 
 # Introduction
 
-Welcome to the introduction of ORFik experiment. This vignette will walk you through how to work with large amounts of sequencing data effectively in ORFik.
+Welcome to the introduction of data management with ORFik experiment. This vignette will walk you through how to work with large amounts of sequencing data effectively in ORFik.
 `ORFik` is an R package containing various functions for analysis of RiboSeq, RNASeq and CageSeq data, we advice you to read ORFikOverview vignette, before starting this one.
 
 ## Motivation
-NGS libraries are becomming more and more numerous. As a bioinformatician you often need to use many data-sets, like RNA-seq or ribo-seq together, to make some plots or statistics. A lot of things can go wrong when you scale up from just 1 data-set to many.
+NGS libraries are becoming more and more numerous. As a bioinformatician you often need to use many data-sets, like RNA-seq or ribo-seq together, to make some plots or statistics. A lot of things can go wrong when you scale up from just 1 data-set to many.
 
-Another problem is also that annotations like gff and fasta files combined with the NGS data, must be seperatly loaded. Making it possible to use wrong annotation for the NGS data, or wrong chromosome naming as chr1 vs 1 etc.
+Another problem is also that annotations like gff and fasta files combined with the NGS data, must be separately loaded. Making it possible to use wrong annotation for the NGS data, or wrong chromosome naming as chr1 vs 1 etc.
 
 ## What is an ORFik experiment?
-It is an object to massivly simplify / error correcting your code, by having a table of all libraries and annotation of an experiment. That contains filepaths and info for each library / annotation files in the experiment. It also tries to guess grouping / types / pairs (paired end bam files etc.) by the file names. It is also a safety in that it verifies your experiments contain no duplicate files, or empty or non-accesible files.  Making it almost impossible to load the wrong data. In addition it checks chromosome naming of libraries and annotation, making sure you are not mixing chr1 vs 1 as name for chromosome 1 etc.
+It is an object to massively simplify / error correcting your code, by having a table of all libraries and annotation of an experiment. That contains filepaths and info for each library / annotation files in the experiment. It also tries to guess grouping / types / pairs (paired end bam files etc.) by the file names. It is also a safety in that it verifies your experiments contain no duplicate files, or empty or non-accessible files.  Making it almost impossible to load the wrong data. In addition it checks chromosome naming of libraries and annotation, making sure you are not mixing chr1 vs 1 as name for chromosome 1 etc.
 
 The main reason to represent your NGS data as an ORFik experiment will now be shown.
 
@@ -55,7 +55,7 @@ data.frame(template)
 You see from the template, it excludes files with .bai or .fai, .rdata etc, and only using data of NGS libraries, defined by argument (type).
 
 You can also see it tries to guess library types, stages, replicates, condition etc. It will also try to auto-detect paired end bam files.
-To fix the things it did not find, you either save the file and modify in excel / libre office, or do it directly in R.
+To fix the things it did not find, you either save the file and modify in Excel / Libre office, or do it directly in R.
 
 Let's update the template to have correct tissue-fraction in one of the samples.
 ```{r eval = TRUE, echo = TRUE}
@@ -70,7 +70,7 @@ save.experiment(df, file = "path/to/save/experiment.csv")
 ```
 You can then load the experiment whenever you need it.
 
-## The experiment object
+# The experiment object
 To see the object, just show it like this:
 ```{r eval = TRUE, echo = TRUE}
 df
@@ -125,7 +125,7 @@ With ORFik experiment this is easy:
 txNames <- filterTranscripts(txdb, minFiveUTR = 30,minCDS = 30, minThreeUTR = 30)
 loadRegions(txdb, parts = c("leaders", "cds", "trailers"), names.keep = txNames)
 ```
-The regions are now loaded into .GlobalEnv, only keeping transcript after the filter
+The regions are now loaded into .GlobalEnv, only keeping transcripts from txNames.
 
 ## Plotting with ORFik experiments
 Lets make a plot with coverage over mrna in just ribo-seq
@@ -133,11 +133,24 @@ Lets make a plot with coverage over mrna in just ribo-seq
 transcriptWindow(leaders, cds, trailers, df[3,])
 ```
 
-## P-site shifting experiment
+# P-site shifting experiment
+If your experiment consists of Ribo-seq, you want to do p-site shifting.
 ```{r eval = FALSE, echo = TRUE, warning=FALSE}
-shiftFootprintsByExperiment(df[df$libtype == "RFP",], output_format = "bedo")
+shiftFootprintsByExperiment(df[df$libtype == "RFP",])
 ```
-P-shifted ribo-seq will automaticly be stored as .bed files in a ./pshifted folder, relative to original libraries.
+P-shifted ribo-seq will automaticly be stored as .wig (wiggle files for IGV and other genome browsers) and .ofst (ORFik serialized for R) files in a ./pshifted folder, relative to original libraries. 
+
+To validate p-shifting, use shiftPlots. Here is an example from Bazzini et al. 2014 I made.
+```{r eval = FALSE, echo = TRUE, warning=FALSE}
+df.baz <- read.experiment("zf_bazzini14_RFP")
+shiftPlots(df.baz, title = "Ribo-seq, zebrafish, Bazzini et al. 2014")
+```
+![p-site analysis](../inst/images/pshift_bazzini.png)
+
+To see the shifts per library do:
+```{r eval = FALSE, echo = TRUE, warning=FALSE}
+shifts.load(df)
+```
 
 To see the location of pshifted files:
 ```{r eval = FALSE, echo = TRUE, warning=FALSE}
@@ -149,17 +162,53 @@ To load p-shifted libraries, you can do:
 outputLibs(df[df$libtype == "RFP",], type = "pshifted")
 ```
 
+## Converting bam files to faster formats
+
+Bam files are slow to load, and usually you don't need all the information
+contained in a bam file.
+
+Usually you convert to bed or wig files, but ORFik also support 2 formats
+for much faster loading and use of data.
+
+### ofst: ORFik serialized format
+From the bam file store these columns as a serialized file:
+seqname, start, cigar, strand, score (number of identical replicates for that read). 
+
+This is the fastest format to use, loading time of 10GB Ribo-seq bam file reduced from minutes to ~ 1 second and ~ 20MB size.
+
+
+### bedo: bed ORFik file
+From the bam file store these columns as text file:
+seqname, start, end (if not all widths are 1), strand, score (number of identical replicates for that read), size (size of cigar Ms according to reference)
+
+The R object loaded from these files are GRanges, since cigar is not needed.
+
+Loading time of 10GB Ribo-seq bam file reduced to ~ 10 seconds and ~ 100MB size.
+
+### bedoc: bed ORFik file with cigar
+From the bam file store these columns as text file:
+seqname, cigar, start, strand, score (number of identical replicates for that read)
+
+The R object loaded from these files are GAlignments or GAlignmentPairs, since cigar is needed.
+
+Loading time of 10GB Ribo-seq bam file reduced to ~ 15 seconds and ~ 200MB size.
+
 ## ORFik QC report
 ORFik also support a full QC report for post alignment statistics, correlation plots,
 simplified libraries for plotting, meta coverage, ++.
 
 ```{r eval = FALSE, echo = TRUE, warning=FALSE}
-ORFikQC(df)
+QCreport(df)
 ```
-
+The plots and statistics are saved to disc.
+To see the statistics, you can do:
+```{r eval = FALSE, echo = TRUE, warning=FALSE}
+QCstats(df)
+```
 ## Using the ORFik system in your script
-
-There are 2 ways to run loops for the data:
+Usually you want to do some operation on multiple data-sets. With ORFik experiment, 
+this operation is simple.
+There are 3 ways to run loops for the data:
 
 1. if you know you have enough memory to load all data at once
 ```{r eval = FALSE, echo = TRUE, warning=FALSE}

@@ -9,10 +9,10 @@ optimizeReads(grl, reads)
 \arguments{
 \item{grl}{a \code{\link{GRangesList}} or GRanges object}
 
-\item{reads}{a GRanges or GAlignment object}
+\item{reads}{a GRanges, GAlignment or GAlignmentPairs object}
 }
 \value{
-the reads as GRanges or GAlignment
+the reads as GRanges,  GAlignment or GAlignmentPairs
 }
 \description{
 Keep only the ones that overlap within the grl ranges.
@@ -23,6 +23,7 @@ Other utils:
 \code{\link{bedToGR}()},
 \code{\link{convertToOneBasedRanges}()},
 \code{\link{export.bed12}()},
+\code{\link{export.wiggle}()},
 \code{\link{fimport}()},
 \code{\link{findFa}()},
 \code{\link{fread.bed}()},

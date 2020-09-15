@@ -10,7 +10,7 @@ libNames <- function() {
   mainName <- c("RNA", "RFP", "CAGE", "LSU",
                 "SSU", "ATAC", "tRNA", "SHAPE", "PRPF")
   allNames <-
-    list(c("RNA", "rna-seq", "Rna-seq", "RNA-seq"),
+    list(c("rna-seq", "Rna-seq", "RNA-seq"),
          c("RFP", "RPF", "ribo-seq", "Ribo-seq"),
          c("CAGE", "cage"),
          c("LSU"),
@@ -36,8 +36,9 @@ stageNames <- function() {
   mainName <- c("unfertilized", "fertilized",
                 "2to4Cell", "4Cell", "8Cell", "64Cell", "256Cell", "512Cell",
                 "1KCell", "High", "Oblong", "Sphere", "Dome", "Shield", "Bud",
-                "Somite", "24hpf", "2dpf", "3dpf", "4dpf", "5dpf", "6dpf",
-                "10dpf", "21dpf", "24dpf")
+                "Somite", "24hpf", "prim6", "prim10", "prim12",  "prim20",
+                "2dpf", "3dpf", "4dpf", "5dpf", "6dpf", "10dpf", "21dpf",
+                "24dpf")
   allNames <-
     list(c("unfertilized", "Unfertilized"),
          c("_fertilized", "_Fertilized"),
@@ -55,8 +56,13 @@ stageNames <- function() {
          c("Shield", "shield", "_6h", "_06h", "6hpf"),
          c("Bud", "bud", "_10h", "10hpf"),
          c("Somite", "somite", "_12h", "12hpf"),
-         c("24hpf", "1dfp"),
-         "2dpf","3dpf", "4dpf", "5dpf", "6dpf", "10dpf", "21dpf", "24dpf"
+         c("24hpf", "_24h", "1dfp"),
+         c("prim6", "prim_6", "25hpf", "_25h"),
+         c("prim10", "prim_10", "27hpf", "_27h"),
+         c("prim12", "prim_12", "28hpf", "_28h"),
+         c("prim20", "prim_20", "33hpf", "_33h"),
+         c("2dpf", "_48h", "_48hpf"),
+         "3dpf", "4dpf", "5dpf", "6dpf", "10dpf", "21dpf", "24dpf"
          )
   dt <- data.table(mainName, allNames)
   return(dt)
@@ -156,14 +162,16 @@ repNames <- function() {
 #' of the main name in second column as a list.
 conditionNames <- function() {
   mainName <- c("WT", "MZ", "4Ei", "Silvesterol",
-                "Mutant", "cas9")
+                "Mutant", "cas9", "NMDA", "DHPG")
   allNames <-
-    list(c("WT", "wt", "control", "Control"),
+    list(c("WT", "wt", "control", "Control", "Basal"),
          c("MZ", "dicer"),
          c("4Ei", "4ei"),
          c("silvesterol", "Silvesterol"),
          c("mutant", "Mutant"),
-         c("Cas9", "cas9")
+         c("Cas9", "cas9"),
+         c("NMDA"),
+         c("DHPG")
     )
   dt <- data.table(mainName, allNames)
   return(dt)

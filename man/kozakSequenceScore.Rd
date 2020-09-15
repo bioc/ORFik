@@ -13,11 +13,12 @@ kozakSequenceScore(grl, tx, faFile, species = "human", include.N = FALSE)
 must have a coresponding tx.}
 
 \item{faFile}{\code{\link{FaFile}}, BSgenome, fasta/index file path or an
-ORFik \code{\link{experiment}}. This file used to find the
-transcript sequences}
+ORFik \code{\link{experiment}}. This file is usually used to find the
+transcript sequences from some GRangesList.}
 
 \item{species}{("human"), which species to use,
-currently supports human, zebrafish and mouse (m. musculus).
+currently supports human (Homo sapiens), zebrafish (Danio rerio) and mouse (Mus musculus).
+Both scientific or common name for these species will work.
 You can also specify a pfm for your own species.
 Syntax of pfm is an rectangular integer matrix,
 where all columns must sum to the same value, normally 100.
@@ -44,7 +45,7 @@ base per column was chosen).
 Ranges that does not have minimum 15 length (the kozak requirement as a
 sliding window of size 15 around grl start),
 will be set to score 0. Since they should not have the posibility to make
-a ribosome binding.
+an efficient ribosome binding.
 }
 \examples{
 # Usually the ORFs are found in orfik, which makes names for you etc.

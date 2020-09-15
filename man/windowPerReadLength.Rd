@@ -29,9 +29,9 @@ ORFik orf names. that is "txName_id"}
 RiboSeq, RnaSeq etc. Weigths for scoring is default the 'score'
 column in 'reads'}
 
-\item{pShifted}{a logical (TRUE), are riboseq reads p-shifted to size
+\item{pShifted}{a logical (TRUE), are Ribo-seq reads p-shifted to size
 1 width reads? If upstream and downstream is set, this argument is
-irrelevant.}
+irrelevant. So set to FALSE if this is not p-shifted Ribo-seq.}
 
 \item{upstream}{an integer (5), relative region to get upstream from.}
 
@@ -46,8 +46,8 @@ NOTE!: if windows have different widths, this will be ignored.}
 
 \item{scoring}{a character (transcriptNormalized), one of
 (zscore, transcriptNormalized, mean, median, sum, sumLength, fracPos),
-see ?coverageScorings. Use to decide a scoring of hits per position
-for metacoverage etc.}
+see ?coverageScorings for more info. Use to decide a scoring of hits
+per position for metacoverage etc.}
 
 \item{weight}{(default: 'score'), if defined a character name
 of valid meta column in subject. GRanges("chr1", 1, "+", score = 5),
@@ -60,10 +60,9 @@ You can also assign a score column manually.}
 a data.table with lengths by coverage / vector of proportions
 }
 \description{
-This is like a more detailed floss score, where floss score takes fraction
-of reads per read length over whole window, this is defined as:
-Fraction of reads  per read length, per position in whole window (by
-upstream and downstream)
+This is defined as:
+Fraction of reads  per read length, per position in whole window (defined
+by upstream and downstream)
 }
 \details{
 If tx is not NULL, it gives a metaWindow, centered around startSite of

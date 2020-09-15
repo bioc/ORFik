@@ -15,6 +15,8 @@ of whole mrnas or one of (leaders, cds, trailers).}
 
 \item{type}{default: "count" (raw counts matrix),
 "summarized" (SummarizedExperiment object),
+"deseq" (Deseq2 experiment, design will be all valid non-unique
+columns except replicates, change by using DESeq2::design,
 normalization alternatives are: "fpkm", "log2fpkm" or "log10fpkm"}
 
 \item{collapse}{a logical/character (default FALSE), if TRUE all samples
@@ -27,13 +29,12 @@ a data.table of columns as counts per library, column name
 is name of library. Rownames must be unique for now. Might change.
 }
 \description{
-Used to quickly load read count tables to R.
-}
-\details{
+Used to quickly load read count tables to R. \cr
 If df is experiment:
 Extracts by getting /QC_STATS directory, and searching for region
 Requires \code{\link{ORFikQC}} to have been run on experiment!
-
+}
+\details{
 If df is path to folder:
 Loads the the file in that directory with the regex region.rds,
 where region is what is defined by argument.
@@ -61,4 +62,9 @@ df <- read.experiment(template)
 # countTable(df, "mrna", type = "count")
 # Get count Table of mrnas with collapsed replicates
 # countTable(df, "mrna", collapse = TRUE)
+# Get count Table of mrnas as summarizedExperiment
+# countTable(df, "mrna", type = "summarized")
+# Get count Table of mrnas as DESeq2 object,
+# for differential expression analysis
+# countTable(df, "mrna", type = "deseq")
 }

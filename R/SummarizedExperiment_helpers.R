@@ -19,6 +19,9 @@
 #' Can also be a \code{\link{GRangesList}}, then it uses this region directly.
 #' @param type default: "count" (raw counts matrix), alternative is "fpkm",
 #' "log2fpkm" or "log10fpkm"
+#' @param weight numeric or character, a column to score overlaps by. Default "score",
+#' will check for a metacolumn called "score" in libraries. If not found,
+#' will not use weights.
 #' @import SummarizedExperiment
 #' @export
 #' @return a \code{\link{SummarizedExperiment}} object or data.table if
@@ -44,7 +47,8 @@
 makeSummarizedExperimentFromBam <- function(df, saveName = NULL,
                                             longestPerGene = TRUE,
                                             geneOrTxNames = "tx",
-                                            region = "mrna", type = "count") {
+                                            region = "mrna", type = "count",
+                                            weight = "score") {
 
 
   if(!is.null(saveName)) {
@@ -70,7 +74,12 @@ makeSummarizedExperimentFromBam <- function(df, saveName = NULL,
                                  nrow = length(tx)))
   for (i in seq(length(varNames))) { # For each sample
     print(varNames[i])
-    co <- countOverlaps(tx, get(varNames[i]))
+    if (is.character(weight) & length(weight) == 1) {
+      if (!(weight %in% colnames(mcols(get(varNames[i])))))
+        weight <- NULL
+    }
+
+    co <- countOverlapsW(tx, get(varNames[i]), weight = weight)
     rawCounts[, (paste0("V",i)) := co]
   }
   mat <- as.matrix(rawCounts);colnames(mat) <- NULL
@@ -158,8 +167,7 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 
 #' Extract count table directly from experiment
 #'
-#' Used to quickly load read count tables to R.
-#'
+#' Used to quickly load read count tables to R. \cr
 #' If df is experiment:
 #' Extracts by getting /QC_STATS directory, and searching for region
 #' Requires \code{\link{ORFikQC}} to have been run on experiment!
@@ -173,6 +181,8 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #'  of whole mrnas or one of (leaders, cds, trailers).
 #' @param type default: "count" (raw counts matrix),
 #' "summarized" (SummarizedExperiment object),
+#' "deseq" (Deseq2 experiment, design will be all valid non-unique
+#' columns except replicates, change by using DESeq2::design,
 #' normalization alternatives are: "fpkm", "log2fpkm" or "log10fpkm"
 #' @param collapse a logical/character (default FALSE), if TRUE all samples
 #' within the group SAMPLE will be collapsed to one. If "all", all
@@ -180,6 +190,8 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' as rowSum(elements_per_group) / ncol(elements_per_group)
 #' @return a data.table of columns as counts per library, column name
 #' is name of library. Rownames must be unique for now. Might change.
+#' @importFrom DESeq2 DESeqDataSet
+#' @importFrom stats as.formula
 #' @export
 #' @examples
 #' # 1. Pick directory
@@ -204,8 +216,14 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' # countTable(df, "mrna", type = "count")
 #' # Get count Table of mrnas with collapsed replicates
 #' # countTable(df, "mrna", collapse = TRUE)
+#' # Get count Table of mrnas as summarizedExperiment
+#' # countTable(df, "mrna", type = "summarized")
+#' # Get count Table of mrnas as DESeq2 object,
+#' # for differential expression analysis
+#' # countTable(df, "mrna", type = "deseq")
 countTable <- function(df, region = "mrna", type = "count",
                        collapse = FALSE) {
+  # TODO fix bug if deseq!
   if (is(df, "experiment")) {
     dir = dirname(df$filepath[1])
     df <- paste0(dir, "/QC_STATS")
@@ -218,6 +236,15 @@ countTable <- function(df, region = "mrna", type = "count",
     if (length(df) == 1) {
       res <- readRDS(df)
       if (type == "summarized") return(res)
+      if (type == "deseq") {
+        # remove replicate from formula
+        formula <- colnames(colData(res))
+        if ("replicate" %in% formula)
+          formula <- formula[-grep("replicate", formula)]
+        formula <- as.formula(paste(c("~", paste(formula,
+                                    collapse = " + ")), collapse = " "))
+        return(DESeqDataSet(res, design = formula))
+      }
       ress <- scoreSummarizedExperiment(res, type, collapse)
       if (is(ress, "matrix")) {
         ress <- as.data.table(ress)

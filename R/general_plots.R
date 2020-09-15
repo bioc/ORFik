@@ -81,8 +81,8 @@ kozakHeatmap <- function(seqs, rate, start = 1, stop = max(nchar(seqs))
   xPos <- seq(start, stop + 1) - start + 1 - center
   xPos <- xPos[-center]
   xPos[xPos > 0] <- paste0("+", xPos[xPos > 0])
-  codon.table$variable <- factor(codon.table$variable, levels=vars,
-                                 labels=xPos)
+  codon.table$variable <- factor(codon.table$variable, levels = vars,
+                                 labels = xPos)
 
   if (skip.startCodon) {
     codon.table[codon.table$variable %in% c("+1", "+2", "+3"), ]$median_score <- NA
@@ -104,17 +104,22 @@ kozakHeatmap <- function(seqs, rate, start = 1, stop = max(nchar(seqs))
   plot_matrix2_log <- ggplot(data=codon.table.filtered,
                              aes(x=variable, y=value, fill=log2(median_score))) +
     theme(panel.background=element_rect(fill="lightgrey", colour="lightgrey")) +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
     geom_tile(color = "lightgrey") +
     scale_fill_gradientn(colors = c("blue", "white", "red"), na.value = 'lightgrey',
-                         name = paste0("log2(median_", type,")")) +
+                         name = paste0("log2(median ", type,")")) +
     xlab(paste0("Position realitive to ", xlab)) +
     ylab("Nucleotide")
 
   rows <- seq(from = length(unique(codon.table.filtered$value)) - 0.5, to = 0.5)
   names(rows) <- unique(codon.table.filtered$value)
   xmin <- -0.5
-  for(col in unique(codon.table.filtered$variable)){
+  # Per position/column (set the black max box)
+  for(col in unique(codon.table.filtered$variable)) {
     mat <- codon.table.filtered[codon.table.filtered$variable == col,]
+    # Bug here, if not all letters are remaining
+
     highest <- rows[names(rows) == mat$value[which.max(mat$median_score)]]
     xmin = xmin + 1;xmax = xmin + 1; ymin = highest;ymax = ymin + 1
     if (length(highest) == 0) next
@@ -133,6 +138,10 @@ kozakHeatmap <- function(seqs, rate, start = 1, stop = max(nchar(seqs))
 #'
 #' Top motif defined as a TSS of C and 4 T's or C's (pyrimidins) downstream
 #' of TSS C.
+#'
+#' The right plot groups:
+#' C nucleotide, TOP motif (C, then 4 pyrimidines) and
+#' OTHER (all other TSS variants).
 #' @param seqs the sequences (character vector, DNAStringSet).
 #' See example below for input.
 #' @param rate a scoring vector (equal size to seqs)
@@ -146,7 +155,12 @@ kozakHeatmap <- function(seqs, rate, start = 1, stop = max(nchar(seqs))
 #' 2. Set to numeric values, like c(5, 1000),
 #' 3. Set to NULL if you want all values. Backend uses coord_cartesian.
 #' @param type What type is the rate scoring ? default ("Scanning efficiency")
+#' @param legend.position.1st adjust left plot label position, default c(0.75, 0.28),
+#' ("none", "left", "right", "bottom", "top", or two-element numeric vector)
+#' @param legend.position.motif adjust right plot label position, default c(0.75, 0.28),
+#' ("none", "left", "right", "bottom", "top", or two-element numeric vector)
 #' @return a ggplot gtable of the TOP motifs in 2 plots
+#' @importFrom cowplot plot_grid
 #' @importFrom gridExtra grid.arrange
 #' @export
 #' @examples
@@ -168,16 +182,21 @@ kozakHeatmap <- function(seqs, rate, start = 1, stop = max(nchar(seqs))
 #'   # Some toy ribo-seq fpkm scores on cds
 #'   fpkm <- sample(1:115, length(leadersCage), replace = TRUE)
 #'   # Standard arguments
-#'   TOP.Motif.ecdf(seqs, fpkm, type = "ribo-seq FPKM")
-#'
+#'   TOP.Motif.ecdf(seqs, fpkm, type = "ribo-seq FPKM",
+#'                  legend.position.1st = "bottom",
+#'                  legend.position.motif = "bottom")
 #'   # with no zoom on x-axis:
-#'   TOP.Motif.ecdf(seqs, fpkm, xlim = NULL)
+#'   TOP.Motif.ecdf(seqs, fpkm, xlim = NULL,
+#'                  legend.position.1st = "bottom",
+#'                  legend.position.motif = "bottom")
 #' }
 #' }
 #'
 TOP.Motif.ecdf <- function(seqs, rate, start = 1, stop = max(nchar(seqs)),
                          xlim = c("q10","q99"),
-                         type = "Scanning efficiency") {
+                         type = "Scanning efficiency",
+                         legend.position.1st = c(0.75, 0.28),
+                         legend.position.motif = c(0.75, 0.28)) {
   if (length(seqs) != length(rate)) stop("Length of rate and seq must be equal!")
   if (length(seqs) == 0 | length(rate) == 0) stop("Length of rate and seq must be > 0!")
   if (start > stop) stop("Stop must be bigger or equal to start")
@@ -209,10 +228,11 @@ TOP.Motif.ecdf <- function(seqs, rate, start = 1, stop = max(nchar(seqs)),
   # Define plot settings:
   new_pallet_1 <- c("#E495A5","#ABB065","#39BEB1","#ACA4E2")
   new_pallet_2 <- c("#39BEB1", "#ACA4E2", "#E495A5")
-  tl <- theme(legend.position = c(0.2, 0.67), legend.background=element_blank())
-  tlb <- theme(legend.position = c(0.8, 0.3), legend.background=element_blank(),
+
+  tl <- theme(legend.position = legend.position.1st, legend.background=element_blank())
+  tlb <- theme(legend.position = legend.position.motif, legend.background=element_blank(),
                axis.ticks.y=element_blank(), axis.text.y = element_blank())
-  tit <- labs(color = "First nucleotide")
+  tit <- labs(color = "1st nucleotide")
   titb <- labs(color = "Motif")
 
   se1 <- ggplot(data=dt, aes((rate), colour = seq1)) +
@@ -222,7 +242,7 @@ TOP.Motif.ecdf <- function(seqs, rate, start = 1, stop = max(nchar(seqs)),
     ylab("") +
     xlab("") +
     theme_bw() +
-    tl + tit
+    tl + tit + theme(plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
 
   se2 <- ggplot(data=dt, aes((rate), colour = TOP)) +
     stat_ecdf() +
@@ -231,7 +251,7 @@ TOP.Motif.ecdf <- function(seqs, rate, start = 1, stop = max(nchar(seqs)),
     ylab("") +
     xlab("") +
     theme_bw() +
-    tlb + titb
+    tlb + titb + theme(plot.margin = unit(c(0.1, 1, 0.1, 0.1), "cm"))
 
   if (!is.null(xlim)) {
     if (length(xlim) != 2) stop("xlim must be length 2 if defined!")
@@ -247,8 +267,8 @@ TOP.Motif.ecdf <- function(seqs, rate, start = 1, stop = max(nchar(seqs)),
     se2 <- se2 + coord_cartesian(xlim = xlim)
   }
 
-  comb <- grid.arrange(se1, se2, bottom = paste0("log10(", type, ")"),
-                       nrow = 1)
+  comb <- plot_grid(se1, se2, nrow = 1, align = "v")
+  comb <- grid.arrange(comb, bottom = paste0("log10(", type, ")"))
   return(comb)
 }
 

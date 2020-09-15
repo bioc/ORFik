@@ -15,9 +15,12 @@ shiftFootprintsByExperiment(
   minThreeUTR = 30L,
   firstN = 150L,
   min_reads = 1000,
-  accepted.lengths = 1:1000,
-  output_format = "bed",
-  BPPARAM = bpparam()
+  accepted.lengths = 26:34,
+  output_format = c("ofst", "wig"),
+  BPPARAM = bpparam(),
+  log = TRUE,
+  heatmap = FALSE,
+  must.be.periodic = TRUE
 )
 }
 \arguments{
@@ -35,8 +38,8 @@ codons. Default FASLE. Only use if there exists 3' UTRs for the annotation.
 If peridicity around stop codon is stronger than at the start codon, use
 stop instead of start region for p-shifting.}
 
-\item{top_tx}{(integer) Specify which % of the top covered by RiboSeq reads
-transcripts to use for estimation of the shifts. By default we take top 10%
+\item{top_tx}{(integer), default 10. Specify which % of the top covered by RiboSeq
+reads transcripts to use for estimation of the shifts. By default we take top 10%
 top covered transcripts as they represent less noisy dataset. This is only
 applicable when there are more than 1000 transcripts.}
 
@@ -56,24 +59,57 @@ periodicity.}
 \item{min_reads}{default (1000), how many reads must a read-length have to
 be considered for periodicity.}
 
-\item{accepted.lengths}{accepted readlengths, default 1:1000, usually ribo-seq
-is between 26:34.}
+\item{accepted.lengths}{accepted readlengths, default 26:34, usually ribo-seq
+is strongest between 27:32.}
 
-\item{output_format}{default (bed), use export.bed or ORFik optimized
-(bedo) using \code{\link{export.bedo}} ?}
+\item{output_format}{default c("ofst", "wig"), use export.ofst or
+wiggle format (wig) using \code{\link{export.wiggle}} ? Default is both.
+The wig format version can be used in IGV, the score column is counts of that
+read with that read length, the cigar reference width is lost,
+ofst is much faster to save and load in R, and retain cigar reference width,
+but can not be used in IGV. \cr You can also do bedoc format, bed format
+keeping cigar: \code{\link{export.bedoc}}. bedoc is usually not used for
+p-shifting.}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam()}
+
+\item{log}{logical, default (TRUE), output a log file with parameters used.}
+
+\item{heatmap}{a logical or character string, default FALSE.
+If TRUE, will plot heatmap of
+raw reads before p-shifting to console, to see if shifts given make sense.
+You can also set a filepath to save the file there.}
+
+\item{must.be.periodic}{logical TRUE, if FALSE will not filter on
+periodic read lengths. (The Fourier transform filter will be skipped).}
 }
 \value{
-NULL (Objects are saved to out.dir/pshited/"name_pshifted.bed"
-or .bedo)
+NULL (Objects are saved to out.dir/pshited/"name_pshifted.ofst",
+wig, bedo or .bedo)
 }
 \description{
-Saves files to a specified location as .bed, it will include a score column
-containing read width.
+For more details, see: \code{\link{detectRibosomeShifts}}
 }
 \details{
-For more details, see: \code{\link{detectRibosomeShifts}}
+#' Saves files to a specified location as .ofst and .wig,
+The .ofst file will include a score column containing read width. \cr
+The .wig fiels, will be saved in pairs of +/- strand, and score column
+will be replicates of reads starting at that position,
+score = 5 means 5 reads.\cr
+Remember that different species might have different default Ribosome
+read lengths, for human, mouse etc, normally around 27:30.
+}
+\examples{
+df <- ORFik.template.experiment()
+df <- df[3,] #lets only p-shift RFP sample at index 3
+# If you want to check it in IGV do:
+shiftFootprintsByExperiment(df)
+# Then use the .wig files that are created, which are readable in IGV.
+# If you only need in R, do: (then you get no .wig files)
+#shiftFootprintsByExperiment(df, output_format = "ofst")
+}
+\references{
+https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4912-6
 }
 \seealso{
 Other pshifting: 

@@ -2,34 +2,31 @@
 % Please edit documentation in R/experiment.R
 \name{simpleLibs}
 \alias{simpleLibs}
-\title{Will make a simplified version of NGS libraries}
+\title{Converted format of NGS libraries}
 \usage{
 simpleLibs(
   df,
-  out.dir = paste0(dirname(df$filepath[1]), "/bedo/"),
+  out.dir = dirname(df$filepath[1]),
   addScoreColumn = TRUE,
   addSizeColumn = TRUE,
   must.overlap = NULL,
-  method = "None"
+  method = "None",
+  type = "ofst"
 )
 }
 \arguments{
 \item{df}{an ORFik \code{\link{experiment}}}
 
 \item{out.dir}{optional output directory, default:
-paste0(dirname(df$filepath[1]), "/bedo/"),
+dirname(df$filepath[1]),
 if it is NULL, it will just reassign R objects to simplified libraries.}
 
-\item{addScoreColumn}{logical (FALSE), if TRUE, add a score column that
-sums up the hits per unique range This will make each read unique, so
-that each read is 1 time, and score column gives the number of hits.
-A useful compression. If addSizeColumn is FALSE, it will not differentiate
-between reads with same start and stop, but different length. If
-addSizeColumn is FALSE, it will remove it.}
+\item{addScoreColumn}{logical, default TRUE, if FALSE will not add
+replicate numbers as score column, see ORFik::convertToOneBasedRanges.}
 
-\item{addSizeColumn}{logical (FALSE), if TRUE, add a size column that
-for each read, that gives original width of read. Useful if you need
-original read lengths. This takes care of soft clips etc.}
+\item{addSizeColumn}{logical, default TRUE, if FALSE will not add
+size (width) as size column, see ORFik::convertToOneBasedRanges.
+Does not apply for .ofst or .bedoc.}
 
 \item{must.overlap}{default (NULL), else a GRanges / GRangesList object, so
 only reads that overlap (must.overlap) are kept. This is useful when you
@@ -37,14 +34,29 @@ only need the reads over transcript annotation or subset etc.}
 
 \item{method}{character, default "None", the method to reduce ranges,
 for more info see \code{\link{convertToOneBasedRanges}}}
+
+\item{type}{a character of format, default "ofst".
+Alternatives: "ofst", "wig","bedo" or "bedoc". Which format you want.
+Will make a folder within out.dir with this name containing the files.}
 }
 \value{
 NULL (saves files to disc or R .GlobalEnv)
 }
 \description{
-Export files as .bedo files. It is a bed file with 2 score columns.
-Gives a massive speedup when cigar strings are not needed.
+Export as either .ofst, .bedo or .bedoc files.\cr
+Export files as .bedo files: It is a bed file with 2 score columns.
+Gives a massive speedup when cigar string and bam flags are not needed.\cr
+Export files as .bedoc files: If cigar is needed, gives you replicates
+and cigar, so a fast way to load a GAlignment object, other bam flags
+are lost. If type is bedoc addSizeColumn and method will be ignored.
 }
 \details{
-See \code{\link{export.bedo}} for information on file format
+See \code{\link{export.bedo}} and \code{\link{export.bedoc}}
+for information on file formats
+}
+\examples{
+df <- ORFik.template.experiment()
+#simpleLibs(df)
+# Keep only 5' ends of reads
+#simpleLibs(df, method = "5prime")
 }

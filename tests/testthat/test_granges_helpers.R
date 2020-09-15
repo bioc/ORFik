@@ -54,6 +54,13 @@ test_that("groupGRangesBy works as intended", {
   expect_is(grltest,"GRangesList")
   expect_equal(length(grltest), 2)
   expect_equal(length(unlist(grl[1], use.names = FALSE)), 3)
+
+  ggg <- GRanges(seqnames = "chrI",
+                IRanges(start = c(10, 50, 100, 200), end = c(20,60,110,210)),
+                strand = factor("+", levels = c("+", "-", "*")))
+  names(ggg) <- c("a", "a", "b", "a")
+  res <- groupGRangesBy(ggg)
+  expect_equal(length(res), 2)
 })
 
 test_that("tile1 works as intended", {
@@ -287,7 +294,7 @@ test_that("convertToOneBasedRanges works as intended", {
 
   res <- convertToOneBasedRanges(ga, addScoreColumn = TRUE,
                                  addSizeColumn = TRUE)
-  expect_equal(readWidths(res), c(6))
+  expect_equal(readWidths(res), 6)
 
   res <- convertToOneBasedRanges(ga, addScoreColumn = FALSE,
                                  addSizeColumn = TRUE)

@@ -24,6 +24,9 @@ downstream from}
 a GRanges, or GRangesList object if any group had > 1 exon.
 }
 \description{
+Per GRanges input (gr), create a GRangesList window output of specified
+upstream, downstream region. This is an extension of the resize funciton,
+that works for spliced ranges.\cr
 If downstream is 20, it means the window will start 20 downstream of
 gr start site (-20 in relative transcript coordinates.)
 If upstream is 20, it means the window will start 20 upstream of
@@ -48,11 +51,18 @@ names(ORF) <- "tx1_1" # ORF 1 on tx1
 tx <- GRangesList(tx1 = GRanges("1", c(1,3,5,7,9,11,13), "+"))
 windowPerGroup(ORF, tx, upstream = -3, downstream = 5) # <- 2nd codon
 
+# With multiple extensions downstream
+ORF <- rep(ORF, 2)
+names(ORF)[2] <- "tx1_2"
+windowPerGroup(ORF, tx, upstream = 0, downstream = c(3, 5))
+
 }
 \seealso{
 Other ExtendGenomicRanges: 
 \code{\link{asTX}()},
 \code{\link{coveragePerTiling}()},
+\code{\link{extendLeaders}()},
+\code{\link{extendTrailers}()},
 \code{\link{reduceKeepAttr}()},
 \code{\link{tile1}()},
 \code{\link{txSeqsFromFa}()}

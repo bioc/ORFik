@@ -22,7 +22,7 @@ a GRangesList grouped by original group, tiled to 1
 Will tile a GRangesList into single bp resolution, each group of the list
 will be splited by positions of 1. Returned values are sorted as the same
 groups as the original GRangesList, except they are in bp resolutions.
-This is not supported originally by GenomicRanges.
+This is not supported originally by GenomicRanges for GRangesList.
 }
 \examples{
 gr1 <- GRanges("1", ranges = IRanges(start = c(1, 10, 20),
@@ -41,6 +41,8 @@ tile1(grl)
 Other ExtendGenomicRanges: 
 \code{\link{asTX}()},
 \code{\link{coveragePerTiling}()},
+\code{\link{extendLeaders}()},
+\code{\link{extendTrailers}()},
 \code{\link{reduceKeepAttr}()},
 \code{\link{txSeqsFromFa}()},
 \code{\link{windowPerGroup}()}

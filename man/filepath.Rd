@@ -9,9 +9,9 @@ filepath(df, type, basename = FALSE)
 \arguments{
 \item{df}{an ORFik \code{\link{experiment}}}
 
-\item{type}{a character(default: "defualt"), load files in experiment
-or some precomputed variant, either "bedo" or "pshifted".
-These are made with ORFik:::simpleLibs()}
+\item{type}{a character(default: "default"), load files in experiment
+or some precomputed variant, either "bedo", "bedoc", "ofst or "pshifted".
+These are made with ORFik:::simpleLibs(), shiftFootprintsByExperiment()..}
 
 \item{basename}{logical, default (FALSE).
 Get relative paths instead of full. Only use for inspection!}
@@ -21,12 +21,20 @@ a character vector of paths, or a list of character with 2 paths per,
 if paired libraries exists
 }
 \description{
-Get filepaths to ORFik experiment
+If other type than "default" is given and that type is not found,
+it will return you default filepaths without warning. \cr
+}
+\details{
+For pshifted libraries, it will load ".bedo"
+prioritized over ".bed", if there exists both file types for the same file.
 }
 \examples{
-# df <- read.experiment("ORFik_exp")
-# filepath(df, "default")
+df <- ORFik.template.experiment()
+filepath(df, "default")
+# If you have bedo files, see simpleLibs():
 # filepath(df, "bedo")
+# If you have pshifted files, see shiftFootprintsByExperiment():
+# filepath(df, "pshifted")
 }
 \seealso{
 Other ORFik_experiment: 
@@ -34,6 +42,7 @@ Other ORFik_experiment:
 \code{\link{create.experiment}()},
 \code{\link{experiment-class}},
 \code{\link{libraryTypes}()},
+\code{\link{organism.df}()},
 \code{\link{outputLibs}()},
 \code{\link{read.experiment}()},
 \code{\link{save.experiment}()},

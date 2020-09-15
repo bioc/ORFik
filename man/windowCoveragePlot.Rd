@@ -10,7 +10,7 @@ windowCoveragePlot(
   scoring = "zscore",
   colors = c("skyblue4", "orange"),
   title = "Coverage metaplot",
-  type = "transcript",
+  type = "transcripts",
   scaleEqual = FALSE,
   setMinToZero = FALSE
 )
@@ -21,16 +21,17 @@ windowCoveragePlot(
 \item{output}{character string (NULL), if set, saves the plot as pdf or png
 to path given. If no format is given, is save as pdf.}
 
-\item{scoring}{character vector (zscore), either of zScore,
-transcriptNormalized, sum, mean, median, NULL. Set NULL if already scored.}
+\item{scoring}{character vector, default "zscore", either of zscore,
+transcriptNormalized, sum, mean, median, NULL. Set NULL if already scored.
+see ?coverageScorings for info and more alternatives.}
 
 \item{colors}{character vector colors to use in plot, will fix automaticly,
 using binary splits with colors c('skyblue4', 'orange').}
 
 \item{title}{a character (metaplot) (what is the title of plot?)}
 
-\item{type}{a character (transcript), what should legends say is
-the whole region? Transcript, gene, non coding rna etc.}
+\item{type}{a character (transcripts), what should legends say is
+the whole region? Transcripts, genes, non coding rnas etc.}
 
 \item{scaleEqual}{a logical (FALSE), should all fractions (rows), have same
 max value, for easy comparison of max values if needed.}

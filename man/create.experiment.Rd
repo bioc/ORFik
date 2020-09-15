@@ -8,10 +8,12 @@ create.experiment(
   dir,
   exper,
   saveDir = NULL,
-  types = c("bam", "bed", "wig"),
   txdb = "",
   fa = "",
-  viewTemplate = TRUE
+  organism = "",
+  pairedEndBam = FALSE,
+  viewTemplate = TRUE,
+  types = c("bam", "bed", "wig")
 )
 }
 \arguments{
@@ -21,13 +23,21 @@ create.experiment(
 
 \item{saveDir}{Directory to save experiment csv file (NULL)}
 
-\item{types}{Default (bam, bed, wig), which types of libraries to allow}
-
 \item{txdb}{A path to gff/gtf file used for libraries}
 
 \item{fa}{A path to fasta genome/sequences used for libraries}
 
+\item{organism}{character, default: "" (no organism set), scientific name
+of organism. Homo sapiens, Danio rerio, Rattus norvegicus etc.}
+
+\item{pairedEndBam}{logical FALSE, else TRUE, or a logical list of
+TRUE/FALSE per library you see will be included (run first without and check
+what order the files will come in) 1 paired end file, then two single will
+be c(T, F, F)}
+
 \item{viewTemplate}{run View() on template when finished, default (TRUE)}
+
+\item{types}{Default (bam, bed, wig), which types of libraries to allow}
 }
 \value{
 a data.frame, NOTE: this is not a ORFik experiment,
@@ -53,10 +63,16 @@ dir <- system.file("extdata", "", package = "ORFik")
 exper <- "ORFik"
 # 3. Pick .gff/.gtf location
 txdb <- system.file("extdata", "annotations.gtf", package = "ORFik")
+# 4. Pick fasta genome of organism
+fa <- system.file("extdata", "genome.fasta", package = "ORFik")
+# 5. Set organism (optional)
+org <- "Homo sapiens"
 template <- create.experiment(dir = dir, exper, txdb = txdb,
+                              fa = fa, organism = org,
                               viewTemplate = FALSE)
-template$X5[6] <- "heart" # <- fix non unique row
-# read experiment
+# Now fix non-unique rows: either is libre orfice, microsoft excel, or in R
+template$X5[6] <- "heart"
+# read experiment (if you set correctly)
 df <- read.experiment(template)
 # Save with: save.experiment(df, file = "path/to/save/experiment.csv")
 }
@@ -66,6 +82,7 @@ Other ORFik_experiment:
 \code{\link{experiment-class}},
 \code{\link{filepath}()},
 \code{\link{libraryTypes}()},
+\code{\link{organism.df}()},
 \code{\link{outputLibs}()},
 \code{\link{read.experiment}()},
 \code{\link{save.experiment}()},

@@ -2,19 +2,18 @@
 #'
 #' It will group / split the GRanges object by the argument `other`.
 #' For example if you would like to to group GRanges object by gene,
-#' set other to gene names.
-#'
+#' set other to gene names. \cr
 #' If `other` is not specified function will try to use the names of the
 #' GRanges object. It will then be similar to `split(gr, names(gr))`.
 #'
-#' It is important that all groups in `other` are unique, otherwise
-#' duplicates will be grouped together.
+#' It is important that all intended groups in `other` are uniquely named,
+#' otherwise duplicated group names will be grouped together.
 #' @param gr a GRanges object
 #' @param other a vector of unique names to group by (default: NULL)
 #' @return a GRangesList named after names(Granges) if other is NULL, else
 #' names are from unique(other)
 #' @export
-#' @importFrom S4Vectors nrun
+#' @importFrom data.table chmatch
 #' @examples
 #' ORFranges <- GRanges(seqnames = Rle(rep("1", 3)),
 #'                      ranges = IRanges(start = c(1, 10, 20),
@@ -42,13 +41,16 @@ groupGRangesBy <- function(gr, other = NULL) {
   if (!is(gr, "GRanges")) stop("gr must be GRanges Object")
   if (is.null(other)) { # if not using other
     if (is.null(names(gr))) stop("gr object have no names")
-    l <- S4Vectors::Rle(names(gr))
+    l <- names(gr)
   } else { # else use other
     if (length(gr) != length(other))
       stop(" in GroupGRangesByOther: lengths of gr and other does not match")
-    l <- S4Vectors::Rle(other)
+    l <- other
   }
-  grouping <- rep.int(seq.int(nrun(l)), runLength(l))
+  grouping <- if (is(l, "character")) {
+    chmatch(l, l) # faster for strings
+  } else match(l, l)
+
   grl <- split(gr, grouping)
   if (is.null(other)) {
     names(grl) <- unique(names(gr))
@@ -74,7 +76,7 @@ groupGRangesBy <- function(gr, other = NULL) {
 #' Remember to think about how you define length. Like the question:
 #' is a Illumina error mismatch sufficient to reduce size of read and how
 #' do you know what is biological variance and what are Illumina errors?
-#' @param reads a GRanges or GAlignment object.
+#' @param reads a GRanges, GAlignment or GAlignmentPairs object.
 #' @param after.softclips logical (TRUE), include softclips in width. Does not
 #' apply if along.reference is TRUE.
 #' @param along.reference logical (FALSE), example: The cigar "26MI2" is
@@ -83,6 +85,8 @@ groupGRangesBy <- function(gr, other = NULL) {
 #' 21 if by along.reference is TRUE. Intronic regions (cigar: N) will
 #' be removed. So: "1M200N19M" is 20, not 220.
 #' @return an integer vector of widths
+#' @importFrom GenomicAlignments first
+#' @importFrom GenomicAlignments last
 #' @export
 #' @examples
 #' gr <- GRanges("chr1", 1)
@@ -103,12 +107,12 @@ readWidths <- function(reads, after.softclips = TRUE, along.reference = FALSE) {
     if (is.one_based ) {
       if (is.null(reads$size)) {
         if (is.null(reads$score)) {
-          message("All widths are 1, If ribo-seq is p-shifted, ",
+          message("Notification: All widths are 1, If ribo-seq is p-shifted,",
                   "score or size meta column should contain widths of read, ",
                   "will continue using 1-widths")
         } else {
-          message("All widths are 1, using score column for widths, remove ",
-                  "score column and run again if this is wrong.")
+          message("Notification: All widths are 1, using score column for ",
+                  "widths, remove score column and run again if this is wrong.")
           readWidth <- reads$score
         }
 
@@ -117,10 +121,19 @@ readWidths <- function(reads, after.softclips = TRUE, along.reference = FALSE) {
       }
     }
   } else {
+    # Now the cigar of paired end reads are merged together
+    # Is this the smartest way ?
+    cigar <- if (is(reads, "GAlignmentPairs")) {
+      paste0(cigar(GenomicAlignments::first(reads)),
+             cigar(GenomicAlignments::last(reads)))
+    } else if (is(reads, "GAlignments")) {
+      cigar(reads)
+    } else stop("reads must be either GRanges, GAlignments or GAlignmentPairs")
+
     readWidth <- if (along.reference) {
-      cigarWidthAlongReferenceSpace(cigar(reads), N.regions.removed = TRUE)
+      cigarWidthAlongReferenceSpace(cigar, N.regions.removed = TRUE)
     } else {
-      cigarWidthAlongQuerySpace(cigar(reads),
+      cigarWidthAlongQuerySpace(cigar,
                                 after.soft.clipping =
                                   after.softclips)
     }

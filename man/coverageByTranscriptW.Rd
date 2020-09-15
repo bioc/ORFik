@@ -2,12 +2,12 @@
 % Please edit documentation in R/grl_helpers.R
 \name{coverageByTranscriptW}
 \alias{coverageByTranscriptW}
-\title{Remake of coverageByTranscript}
+\title{coverageByTranscript with weights}
 \usage{
 coverageByTranscriptW(x, transcripts, ignore.strand = FALSE, weight = 1L)
 }
 \arguments{
-\item{x}{reads (\code{\link{GRanges}}, GAlignment)}
+\item{x}{reads (\code{\link{GRanges}}, \code{\link{GAlignments}})}
 
 \item{transcripts}{\code{\link{GRangesList}}}
 
@@ -23,5 +23,6 @@ that this alignment was found 5 times.}
 Integer Rle of coverage, 1 per transcript
 }
 \description{
-Allows weights, see \code{\link{coverageByTranscript}}
+Extends the function with weights,
+see \code{\link{coverageByTranscript}} for original function.
 }

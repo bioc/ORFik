@@ -4,7 +4,7 @@
 \alias{shiftFootprints}
 \title{Shift footprints by selected offsets}
 \usage{
-shiftFootprints(footprints, shifts)
+shiftFootprints(footprints, shifts, sort = TRUE)
 }
 \arguments{
 \item{footprints}{\code{\link{GAlignments}} object of RiboSeq reads}
@@ -12,6 +12,10 @@ shiftFootprints(footprints, shifts)
 \item{shifts}{a data.frame / data.table with minimum 2 columns,
 fraction (selected_lengths) and selected_shifts (relative position).
 Output from \code{\link{detectRibosomeShifts}}}
+
+\item{sort}{logical, default TRUE. If False will keep original order of
+reads, and not sort output reads in increasing genomic location per
+chromosome and strand.}
 }
 \value{
 A \code{\link{GRanges}} object of shifted footprints, sorted and
@@ -27,14 +31,14 @@ fashion, treated as p site.
 This function takes account for junctions in cigars of the reads. Length of
 the footprint is saved in size' parameter of GRanges output. Footprints are
 also sorted according to their genomic position, ready to be saved as a
-bed file.
+ofst, bed or wig file.
 }
 \details{
-The two columns in shift are:
+The two columns in the shift data.frame/data.table argument are:\cr
 - fraction Numeric vector of lengths of footprints you select
-for shifting.
-- offsets_start Numeric vector of shifts for coresponding
-selected_lengths. eg. c(10, -10) with selected_lengths of c(31, 32) means
+for shifting.\cr
+- offsets_start Numeric vector of shifts for corresponding
+selected_lengths. eg. c(-10, -10) with selected_lengths of c(31, 32) means
 length of 31 will be shifted left by 10. Footprints of length 32 will be
 shifted right by 10.
 
@@ -42,6 +46,9 @@ NOTE: It will remove softclips from valid width, the CIGAR 3S30M is qwidth
 33, but will remove 3S so final read width is 30 in ORFik.
 }
 \examples{
+# Basic run
+#shiftFootprints(footprints, shifts)
+# Full example
 \dontrun{
 # input path to gtf, or load it as TxDb.
 gtf_file <- system.file("extdata", "annotations.gtf", package = "ORFik")
@@ -55,6 +62,9 @@ shifts <- detectRibosomeShifts(footprints, gtf_file)
 # shift the RiboSeq footprints
 shiftedReads <- shiftFootprints(footprints, shifts)
 }
+}
+\references{
+https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4912-6
 }
 \seealso{
 Other pshifting: 

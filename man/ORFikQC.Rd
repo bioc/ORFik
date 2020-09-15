@@ -15,21 +15,26 @@ ORFikQC(df, out.dir = dirname(df$filepath[1]))
 NULL (objects stored to disc)
 }
 \description{
-From this report you will get a summary csv table, with distribution of
-aligned reads, overlap of reads to transcript regions, like
-leader, cds, trailer, tRNAs, rRNAs, snoRNAs etc.
-It will also make you some correlation plots and meta coverage plots,
+This report consists of several steps:\cr
+1. From this report you will get a summary csv table, with distribution of
+aligned reads and overlap counts over transcript regions like:
+leader, cds, trailer, lincRNAs, tRNAs, rRNAs, snoRNAs etc. It will be called
+STATS.csv. And can be imported with \code{\link{QCstats}} function.\cr
+2. It will also make correlation plots and meta coverage plots,
 so you get a good understanding of how good the quality of your NGS
-data production + aligner step were.
-You will also get count tables over mrna, leader, cds and trailer
-separately, similar to HTseq count tables.
-}
-\details{
+data production + aligner step were.\cr
+3. Count tables are produced, similar to HTseq count tables.
+Over mrna, leader, cds and trailer separately. This tables
+are stored as \code{\link{SummarizedExperiment}}, for easy loading into
+DEseq, conversion to normalized fpkm values,
+or collapsing replicates in an experiment.
+And can be imported with \code{\link{countTable}} function.\cr
 Everything will be outputed in the directory of your NGS data,
 inside the folder ./QC_STATS/, relative to data location in 'df'.
-You can specify new out location with out.dir if you want.
-
-To make a ORFik experiment, see ?ORFik::experiment
+You can specify new out location with out.dir if you want.\cr
+To make a ORFik experiment, see ?ORFik::experiment \cr
+To see some normal mrna coverage profiles of different RNA-seq protocols:
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4310221/figure/F6/
 }
 \examples{
 # 1. Pick directory
@@ -45,5 +50,10 @@ template$X5[6] <- "heart" # <- fix non unique row
 df <- read.experiment(template)
 # Save with: save.experiment(df, file = "path/to/save/experiment.csv")
 
-# ORFikQC(df)
+# QCreport(df)
+}
+\seealso{
+Other QC report: 
+\code{\link{QCplots}()},
+\code{\link{QCstats}()}
 }

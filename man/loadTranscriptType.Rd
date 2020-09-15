@@ -4,16 +4,16 @@
 \alias{loadTranscriptType}
 \title{Load transcripts of given biotype}
 \usage{
-loadTranscriptType(path, part = "rRNA", tx = NULL)
+loadTranscriptType(object, part = "rRNA", tx = NULL)
 }
 \arguments{
-\item{path}{path to gtf/gff}
+\item{object}{a TxDb, ORFik experiment or path to gtf/gff,}
 
 \item{part}{a character, default rRNA. Can also be:
 snoRNA, tRNA etc. As long as that biotype is defined in the gtf.}
 
-\item{tx}{a GRangesList of transcripts (Optional, default NULL),
-add to save run time.}
+\item{tx}{a GRangesList of transcripts (Optional, default NULL,
+all transcript of that type), else it must be names a list to subset on.}
 }
 \value{
 a GRangesList of transcript of that type

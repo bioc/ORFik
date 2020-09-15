@@ -1,7 +1,7 @@
 Package: ORFik
 Type: Package
 Title: Open Reading Frames in Genomics
-Version: 1.8.1
+Version: 1.8.2
 Encoding: UTF-8
 Authors@R: c(
   person(given = "Haakon", family = "Tjeldnes", email = "hauken_heyken@hotmail.com", role = c("aut", "cre", "dtc")),
@@ -14,7 +14,7 @@ Description: R package for analysis of transcript and translation features throu
   Focusing on 5' UTRs (leaders), it is generalized in the 
   sense that any transcript region can be analysed. 
   ORFik is extremely fast through use of C, data.table and GenomicRanges. 
-  Package allows to reassign starts of the transcripts with the use of CageSeq data,
+  Package allows to reassign starts of the transcripts with the use of CAGE-Seq data,
   automatic shifting of RiboSeq reads, finding of Open Reading Frames for
   whole genomes and much more.
 biocViews: ImmunoOncology, Software, Sequencing, RiboSeq, RNASeq, FunctionalGenomics, Coverage, Alignment, DataImport
@@ -36,8 +36,7 @@ Imports:
   Rcpp (>= 1.0.0), 
   data.table (>= 1.11.8),
   Biostrings (>= 2.51.1),
-  stats,
-  tools,
+  biomartr,
   Rsamtools (>= 1.35.0),
   BiocGenerics (>= 0.29.1),
   BiocParallel (>= 1.19.0),
@@ -45,9 +44,15 @@ Imports:
   DESeq2 (>= 1.24.0),
   ggplot2 (>= 2.2.1),
   gridExtra (>= 2.3),
+  cowplot (>= 1.0.0),
   GGally (>= 1.4.0),
-  methods (>= 3.6.0)
-RoxygenNote: 7.0.2
+  methods (>= 3.6.0),
+  R.utils,
+  utils,
+  stats,
+  fst (>= 0.9.2),
+  tools
+RoxygenNote: 7.1.1
 Suggests:
   testthat,
   rmarkdown,
