@@ -9,7 +9,8 @@ ORFikQC(df, out.dir = dirname(df$filepath[1]))
 \arguments{
 \item{df}{an ORFik \code{\link{experiment}}}
 
-\item{out.dir}{optional output directory, default: dirname(df$filepath[1])}
+\item{out.dir}{optional output directory, default: dirname(df$filepath[1]).
+Will make a folder called "QC_STATS" with all results in this directory.}
 }
 \value{
 NULL (objects stored to disc)
@@ -37,19 +38,9 @@ To see some normal mrna coverage profiles of different RNA-seq protocols:
 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4310221/figure/F6/
 }
 \examples{
-# 1. Pick directory
-dir <- system.file("extdata", "", package = "ORFik")
-# 2. Pick an experiment name
-exper <- "ORFik"
-# 3. Pick .gff/.gtf location
-txdb <- system.file("extdata", "annotations.gtf", package = "ORFik")
-template <- create.experiment(dir = dir, exper, txdb = txdb,
-                              viewTemplate = FALSE)
-template$X5[6] <- "heart" # <- fix non unique row
-# read experiment
-df <- read.experiment(template)
-# Save with: save.experiment(df, file = "path/to/save/experiment.csv")
-
+# Load an experiment
+df <- ORFik.template.experiment()
+# Run QC
 # QCreport(df)
 }
 \seealso{

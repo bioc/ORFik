@@ -27,18 +27,8 @@
 #' @return a \code{\link{SummarizedExperiment}} object or data.table if
 #' "type" is not "count, with rownames as transcript / gene names.
 #' @examples
-#' # 1. Pick directory
-#' dir <- system.file("extdata", "", package = "ORFik")
-#' # 2. Pick an experiment name
-#' exper <- "ORFik"
-#' # 3. Pick .gff/.gtf location
-#' txdb <- system.file("extdata", "annotations.gtf", package = "ORFik")
-#' template <- create.experiment(dir = dir, exper, txdb = txdb,
-#'                               viewTemplate = FALSE)
-#' template$X5[6] <- "heart" # <- fix non unique row
-#' # read experiment
-#' df <- read.experiment(template)
-#'
+#' ##Make experiment
+#' df <- ORFik.template.experiment()
 #' # makeSummarizedExperimentFromBam(df)
 #' # Only cds (coding sequences):
 #' # makeSummarizedExperimentFromBam(df, region = "cds")
@@ -49,8 +39,6 @@ makeSummarizedExperimentFromBam <- function(df, saveName = NULL,
                                             geneOrTxNames = "tx",
                                             region = "mrna", type = "count",
                                             weight = "score") {
-
-
   if(!is.null(saveName)) {
     if (file_ext(saveName) != "rds") saveName <- paste0(saveName,".rds")
     if (file.exists(saveName)) return(readRDS(saveName))
@@ -95,6 +83,9 @@ makeSummarizedExperimentFromBam <- function(df, saveName = NULL,
     rownames(res) <- names(tx)
   }
   if(!is.null(saveName)) {
+    if (!dir.exists(dirname(saveName))) {
+      dir.create(dirname(saveName), showWarnings = FALSE, recursive = TRUE)
+    }
     if (file_ext(saveName) != "rds") saveName <- paste0(saveName,".rds")
     saveRDS(res, file = saveName)
   }
@@ -194,17 +185,8 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' @importFrom stats as.formula
 #' @export
 #' @examples
-#' # 1. Pick directory
-#' dir <- system.file("extdata", "", package = "ORFik")
-#' # 2. Pick an experiment name
-#' exper <- "ORFik"
-#' # 3. Pick .gff/.gtf location
-#' txdb <- system.file("extdata", "annotations.gtf", package = "ORFik")
-#' template <- create.experiment(dir = dir, exper, txdb = txdb,
-#'                               viewTemplate = FALSE)
-#' template$X5[6] <- "heart" # <- fix non unique row
-#' # read experiment
-#' df <- read.experiment(template)
+#' # Make experiment
+#' ORFik.template.experiment()
 #' # Make QC report to get counts ++
 #' # ORFikQC(df)
 #'
@@ -258,4 +240,44 @@ countTable <- function(df, region = "mrna", type = "count",
   message(paste("Invalid count table:", df))
   stop("df must be filepath to directory with countTable, the path
        to the countTable or ORFik experiment with a QC_STATS folder!")
+}
+
+#' Make a list of count matrices from experiment
+#'
+#' @inheritParams makeSummarizedExperimentFromBam
+#' @inheritParams QCreport
+#' @param regions a character vector, default:
+#'  c("mrna", "leaders", "cds", "trailers"), make raw count matrices
+#' of whole regions specified.
+#' @param BPPARAM how many cores/threads to use? default: bpparam()
+#' @return a list of data.table, 1 data.table per region. The regions
+#' will be the names the list elements.
+countTable_regions <- function(df, out.dir = dirname(df$filepath[1]),
+                               longestPerGene = TRUE,
+                               geneOrTxNames = "tx",
+                               regions = c("mrna", "leaders", "cds",
+                                           "trailers"),
+                               type = "count",
+                               weight = "score",
+                               BPPARAM = bpparam()) {
+
+  stats_folder <- pasteDir(out.dir, "/QC_STATS/")
+  countDir <- paste0(stats_folder, "countTable_")
+  libs <- bplapply(
+    regions,
+    function(region, countDir, df, geneOrTxNames, longestPerGene) {
+     message("Making count tables for region:")
+     message(region)
+     path <- paste0(countDir, region)
+     makeSummarizedExperimentFromBam(df, region = region,
+                                     geneOrTxNames = "tx",
+                                     longestPerGene = FALSE,
+                                     saveName = path)
+    },
+    countDir = countDir, df = df,
+    geneOrTxNames = geneOrTxNames,
+    longestPerGene = longestPerGene, BPPARAM = BPPARAM
+  )
+  names(libs) <- regions
+  return(libs)
 }
