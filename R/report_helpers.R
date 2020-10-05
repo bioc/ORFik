@@ -3,7 +3,7 @@
 #' The better the annotation / gtf used, the more results you get.
 #' @inheritParams QCreport
 #' @return a data.table of the count info
-QC_count_tables <- function(df, out.dir) {
+QC_count_tables <- function(df, out.dir, BPPARAM = bpparam()) {
   txdb <- loadTxdb(df)
   loadRegions(txdb, parts = c("mrna", "leaders", "cds", "trailers", "tx"))
   outputLibs(df, leaders, type = "ofst")
@@ -21,18 +21,18 @@ QC_count_tables <- function(df, out.dir) {
   types <-types[types %in% c("Mt_rRNA", "snRNA", "snoRNA", "lincRNA", "miRNA",
                              "rRNA", "Mt_rRNA", "ribozyme", "Mt_tRNA")]
   # Put into csv, the standard stats
-  message("Making summary counts for lib:")
+  message("Making alignment statistics for lib:")
   sCo <- function(region, lib) {
     weight <- "score"
     if (!(weight %in% colnames(mcols(lib))))
       weight <- NULL
     return(sum(countOverlapsW(region, lib, weight = weight)))
   }
-  for (s in libs) { # For each library
+  finals <- bplapply(libs, function(s, dt_list, sCo, tx, gff.df) {
     message(s)
     lib <- get(s)
     # Raw stats
-    res <- data.frame(Sample = s, Raw_reads = NA,
+    res <- data.frame(Sample = s, Raw_reads = as.numeric(NA),
                       Aligned_reads = length(lib))
     res$ratio_aligned_raw = res$Aligned_reads / res$Raw_reads
 
@@ -59,13 +59,10 @@ QC_count_tables <- function(df, out.dir) {
     widths <- round(summary(readWidths(lib)))
     res_widths <- data.frame(matrix(widths, nrow = 1))
     colnames(res_widths) <- paste(names(widths), "read length")
+    cbind(res, res_widths, res_mrna, res_extra)
+  }, dt_list = dt_list, sCo = sCo, tx = tx, gff.df = gff.df, BPPARAM = BPPARAM)
 
-    final <- cbind(res, res_widths, res_mrna, res_extra)
-
-    if (s == libs[1]) finals <- final
-    else finals <- rbind(finals, final)
-  }
-  return(finals)
+  return(rbindlist(finals))
 }
 
 #' Add trimming info to QC report
@@ -85,8 +82,10 @@ trim_detection <- function(df, finals, out.dir) {
     lib_string <- 'grep -m 1 -h "total_reads" *.json | grep -Eo "[0-9]*"'
     raw_reads <- as.numeric(system(lib_string, intern = TRUE))
     raw_data <- data.table(raw_library, raw_reads)
+    # Find report files for all libs
     raw_data$raw_library <- gsub("report_",
                                  x = raw_data$raw_library, replacement = "")
+    # Subset to only .json files of libs
     raw_data$raw_library <- gsub(".json",
                                  x = raw_data$raw_library, replacement = "")
     order <- unlist(lapply(X = raw_data$raw_library,
@@ -100,10 +99,12 @@ trim_detection <- function(df, finals, out.dir) {
       print(paste(c("Matches in the order:", order), collapse = " "))
       print(raw_data)
       print(df$filepath)
-      stop("unexpected behavior, report this bug on github page!")
+      stop("unexpected behavior, did you delete any files?",
+           "else report this bug on ORFik github page!")
     } else if (notMatch) { # did not match all
-      message("Could not find raw read count of your data, setting to 20 M")
+      message("Could not find raw read count of your data, setting to NA")
     } else {
+      class(finals$Raw_reads) <- "numeric"
       finals[order,]$Raw_reads <- raw_data$raw_reads
       finals$ratio_aligned_raw = round(finals$Aligned_reads /
                                          finals$Raw_reads, 4)
@@ -136,10 +137,16 @@ trim_detection <- function(df, finals, out.dir) {
 QCstats.plot <- function(stats, output.dir = NULL) {
   if (is(stats, "experiment")) {
     stats <- QCstats(stats)
+    if (is.null(stats))
+      stop("No QC report made for experiment, run ORFik QCreport")
   } else {
     stats <- fread(stats)
   }
   if (colnames(stats)[1] == "V1") colnames(stats)[1] <- "sample_id"
+
+  stats$sample_id <-  factor(stats$Sample,
+                             labels = as.character(seq(length(stats$Sample))),
+                             levels = stats$Sample, ordered = TRUE)
 
   dt_plot <- melt(stats, id.vars = c("Sample", "sample_id"))
   gg_STAT <- ggplot(dt_plot, aes(x=sample_id, y = value, group = Sample, fill = Sample)) +
@@ -149,7 +156,7 @@ QCstats.plot <- function(stats, output.dir = NULL) {
     xlab("Samples") +
     facet_wrap(  ~ variable, scales = "free") +
     theme_minimal()
-  if (is.null(output.dir)) {
+  if (!is.null(output.dir)) {
     ggsave(paste0(output.dir, "/STATS_plot.png"), gg_STAT, width = 13, height = 8)
   }
   return(gg_STAT)

@@ -4,16 +4,20 @@
 \alias{QCreport}
 \title{A post Alignment quality control of reads}
 \usage{
-QCreport(df, out.dir = dirname(df$filepath[1]))
+QCreport(df, out.dir = dirname(df$filepath[1]), BPPARAM = bpparam())
 }
 \arguments{
 \item{df}{an ORFik \code{\link{experiment}}}
 
-\item{out.dir}{optional output directory, default: dirname(df$filepath[1]).
+\item{out.dir}{optional output directory, default:
+\code{dirname(df$filepath[1])}.
 Will make a folder called "QC_STATS" with all results in this directory.}
+
+\item{BPPARAM}{how many cores/threads to use? default: bpparam().
+To see number of threads used, do \code{bpparam()$workers}}
 }
 \value{
-NULL (objects stored to disc)
+invisible(NULL) (objects are stored to disc)
 }
 \description{
 The ORFik QC uses the aligned files (usually bam files),

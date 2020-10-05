@@ -13,7 +13,8 @@ transcriptWindowPer(
   scores = c("sum", "zscore"),
   reads,
   returnCoverage = FALSE,
-  windowSize = 100
+  windowSize = 100,
+  BPPARAM = bpparam()
 )
 }
 \arguments{
@@ -30,11 +31,13 @@ transcriptWindowPer(
 \item{scores}{scoring function (default: c("sum", "zscore")),
 see ?coverageScorings for possible scores.}
 
-\item{reads}{a GRanges / GAligment object of reads}
+\item{reads}{a GRanges / GAligment object of reads, can also be a list of those.}
 
 \item{returnCoverage}{return data.table with coverage (default: FALSE)}
 
 \item{windowSize}{size of binned windows, default: 100}
+
+\item{BPPARAM}{how many cores/threads to use? default: bpparam()}
 }
 \value{
 NULL, or ggplot object if returnPlot is TRUE

@@ -591,7 +591,8 @@ filepath <- function(df, type, basename = FALSE) {
 #' or some precomputed variant, either "bedo", "bedoc", "ofst or "pshifted".
 #' These are made with ORFik:::simpleLibs(), shiftFootprintsByExperiment()..
 #' @param envir environment to save to, default (.GlobalEnv)
-#' @param BPPARAM how many cores/threads to use? default: bpparam()
+#' @param BPPARAM how many cores/threads to use? default: bpparam().
+#' To see number of threads used, do \code{bpparam()$workers}
 #' @return NULL (libraries set by envir assignment)
 #' @importFrom BiocParallel bplapply
 #' @importFrom BiocParallel bpparam
@@ -872,7 +873,10 @@ organism.df <- function(df) {
 #' default ("*", all experiments)
 #' @param libtypeExclusive search for experiments with exclusivly this
 #' libtype, default (NULL, all)
+#' @param BPPARAM how many cores/threads to use? default: bpparam()
 #' @return a data.table, 1 row per experiment with columns experiment (name), libtypes
+#' @importFrom BiocParallel bplapply
+#' @importFrom BiocParallel bpparam
 #' @export
 #' @examples
 #' ## Make your experiments
@@ -888,23 +892,29 @@ organism.df <- function(df) {
 #' ## For non default directory experiments
 #' #list.experiments(dir = "MY/CUSTOM/PATH)
 list.experiments <- function(dir =  "~/Bio_data/ORFik_experiments/",
-                             pattern = "*", libtypeExclusive = NULL) {
+                             pattern = "*", libtypeExclusive = NULL,
+                             BPPARAM = bpparam()) {
   experiments <- list.files(path = dir, pattern = "\\.csv")
   experiments <- grep(experiments, pattern = pattern, value = TRUE)
   experiments <- experiments[grep(experiments, pattern = "template", value = FALSE, invert = TRUE)]
-  es <- lapply(experiments, function(x, dir) {
-    read.experiment(x, dir)
+  info <- bplapply(experiments, function(x, dir) { # Open each experiment in parallell
+    e <- read.experiment(x, dir)
+    list(libtype = unique(e$libtype), runs = length(e$libtype), organism = e@organism)
   }, dir = dir)
-  libtypes <- lapply(es, function(e) {
-    unique(e$libtype)
-  })
-  runs <- lapply(es, function(e) {
-    length(e$libtype)
-  })
-  dt <- data.table(name = gsub(".csv", "", experiments), libtypes, samples = runs)
+
+  info <- unlist(info, recursive = FALSE)
+  libtypes <- info[grep("libtype", names(info))]
+  samples <- unlist(info[names(info) == "runs"])
+  organism <- unlist(info[names(info) == "organism"])
+
+  dt <- data.table(name = gsub(".csv", "", experiments), libtypes, samples, organism)
+  dt <- dt[order(organism, name),]
   if (!is.null(libtypeExclusive)) {
     message(paste("subset on libtype:", libtypeExclusive))
-    dt <- dt[libtypes %in% libtypeExclusive,]
+    match <- lapply(dt$libtypes, function(i) any(libtypeExclusive %in% i))
+    match <- unlist(match)
+
+    dt <- dt[match,]
   }
   return(dt)
 }
