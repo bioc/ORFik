@@ -45,8 +45,12 @@ QCreport <- function(df, out.dir = dirname(df$filepath[1]),
   if (!dir.create(stats_folder, recursive = TRUE)) {
     if (!dir.exists(stats_folder)) stop("Could not create output directory!")
   }
+  message("- Converting input files to .ofst")
+  convertLibs(df, reassign.when.saving = TRUE)
+  message("- Creating read length tables:")
+  dt_read_lengths <- readLengthTable(df, output.dir = stats_folder)
   # Get count tables
-  finals <- QC_count_tables(df, out.dir)
+  finals <- QC_count_tables(df, out.dir, BPPARAM)
   # Do trimming detection
   finals <- trim_detection(df, finals, out.dir)
   # Save file
@@ -90,20 +94,7 @@ QCplots <- function(df, region = "mrna",
   message("- Annotation to NGS libraries plot:")
   QCstats.plot(df, stats_folder)
 
-  message("- Correlation plots")
-  # Load fpkm values
-  data_for_pairs <- countTable(df, region, type = "fpkm")
-  message("  - raw scaled fpkm")
-  paired_plot <- ggpairs(as.data.frame(data_for_pairs),
-                         columns = 1:ncol(data_for_pairs))
-  ggsave(pasteDir(stats_folder, "cor_plot.png"), paired_plot,
-         height=400, width=400, units = 'mm', dpi=300)
-  message("  - log2 scaled fpkm")
-  paired_plot <- ggpairs(as.data.frame(log2(data_for_pairs + 1)),
-                         columns = 1:ncol(data_for_pairs))
-  ggsave(pasteDir(stats_folder, "cor_plot_log2.png"), paired_plot,
-         height=400, width=400, units = 'mm', dpi=300)
-
+  correlation.plots(df, stats_folder, region)
   # window coverage over mRNA regions
   message("- Meta coverage plots")
   txdb <- loadTxdb(df)

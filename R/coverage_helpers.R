@@ -13,10 +13,12 @@
 #' @param fraction a character (1), info on reads (which read length,
 #' or which type (RNA seq)) (row names)
 #' @inheritParams coveragePerTiling
+#' @param BPPARAM how many cores/threads to use? default: bpparam()
 #' @return a data.table with columns position, score
 windowPerTranscript <- function(txdb, reads, splitIn3 = TRUE,
                                 windowSize = 100, fraction = "1",
-                                weight = "score") {
+                                weight = "score",
+                                BPPARAM = bpparam()) {
   # Load data
   txdb <- loadTxdb(txdb)
 
@@ -29,7 +31,7 @@ windowPerTranscript <- function(txdb, reads, splitIn3 = TRUE,
     cds <- cdsBy(txdb, "tx", use.names = TRUE)[txNames]
     trailers = threeUTRsByTranscript(txdb, use.names = TRUE)[txNames]
     txCov <- splitIn3Tx(leaders, cds, trailers, reads, windowSize, fraction,
-                        weight)
+                        weight, BPPARAM = BPPARAM)
 
   } else {
     tx <- exonsBy(txdb, by = "tx", use.names = TRUE)
@@ -56,18 +58,18 @@ windowPerTranscript <- function(txdb, reads, splitIn3 = TRUE,
 #' @inheritParams windowPerTranscript
 #' @return a data.table with columns position, score
 splitIn3Tx <- function(leaders, cds, trailers, reads, windowSize = 100,
-                       fraction = "1", weight = "score") {
-  leaderCov <- scaledWindowPositions(leaders, reads, windowSize,
-                                     weight = weight)
-  leaderCov[, `:=` (feature = "leaders")]
-  cdsCov <- scaledWindowPositions(cds, reads, windowSize,
-                                  weight = weight)
-  cdsCov[, `:=` (feature = "cds")]
-  trailerCov <- scaledWindowPositions(trailers, reads, windowSize,
-                                      weight = weight)
-  trailerCov[, `:=` (feature = "trailers")]
+                       fraction = "1", weight = "score",
+                       BPPARAM = bpparam()) {
+  features <- c("leaders", "cds", "trailers")
+  txCov <- bplapply(features, FUN = function(feature, reads, leaders, cds,
+                                    trailers, windowSize, weight) {
+    cov <- scaledWindowPositions(get(feature, mode = "S4"), reads, windowSize,
+                                 weight = weight)
+    cov[, `:=` (feature = feature)]
+  },  reads = reads, leaders = leaders, cds = cds,trailers = trailers,
+  windowSize = windowSize, weight = weight, BPPARAM = BPPARAM)
 
-  txCov <- rbindlist(list(leaderCov, cdsCov, trailerCov))
+  txCov <- rbindlist(txCov)
   txCov[, `:=` (fraction = fraction)]
   return(txCov)
 }
@@ -217,7 +219,7 @@ scaledWindowPositions <- function(grl, reads, scaleTo = 100,
 #'
 #' Different scorings and groupings of a coverage representation.
 #'
-#' Usually output of metaWindow or scaledWindowCoverage is input in this
+#' Usually output of metaWindow or scaledWindowPositions is input in this
 #' function.
 #'
 #' Content of coverage data.table:
@@ -236,27 +238,32 @@ scaledWindowPositions <- function(grl, reads, scaleTo = 100,
 #' transcripts, and feature column can be c(leader, cds, trailer) etc.
 #'
 #' Given a data.table coverage of counts, add a scoring scheme.
-#' per: the grouping given, if genes is defined, group by per gene in scoring.
-#' Scorings:
-#' 1.  zscore (count-windowMean)/windowSD per)
-#' 2.  transcriptNormalized (sum(count / sum of counts per))
-#' 3.  mean (mean(count per))
-#' 4.  median (median(count per))
-#' 5.  sum (count per)
-#' 6.  log2sum (count per)
-#' 7.  log10sum (count per)
-#' 8.  sumLength (count per) / number of windows
-#' 9.  meanPos (mean per position per gene) used in scaledWindowPositions
-#' 10. sumPos (sum per position per gene) used in scaledWindowPositions
-#' 11. frameSum (sum per frame per gene) used in ORFScore
-#' 12. fracPos (fraction of counts per position per gene)
-#' 13. periodic (Fourier transform periodicity of meta coverage per fraction)
-#' 14. NULL (return input directly)
+#' per: the grouping given, if genes is defined,
+#' group by per gene in default scoring.\cr
+#' Scorings:\cr
+#'
+#' *  zscore (count-windowMean)/windowSD per)
+#' *  transcriptNormalized (sum(count / sum of counts per))
+#' *  mean (mean(count per))
+#' *  median (median(count per))
+#' *  sum (count per)
+#' *  log2sum (count per)
+#' *  log10sum (count per)
+#' *  sumLength (count per) / number of windows
+#' *  meanPos (mean per position per gene) used in scaledWindowPositions
+#' *  sumPos (sum per position per gene) used in scaledWindowPositions
+#' *  frameSum (sum per frame per gene) used in ORFScore
+#' *  frameSumPerL (sum per frame per read length)
+#' *  frameSumPerLG (sum per frame per read length per gene)
+#' *  fracPos (fraction of counts per position per gene)
+#' *  periodic (Fourier transform periodicity of meta coverage per fraction)
+#' *  NULL (no grouping, return input directly)
+#' @md
 #' @param coverage a data.table containing at least columns (count, position),
 #' it is possible to have additionals: (genes, fraction, feature)
 #' @param scoring a character, one of (zscore, transcriptNormalized,
 #' mean, median, sum, log2sum, log10sum, sumLength, meanPos and frameSum,
-#' periodic, NULL). More info in docs.
+#' periodic, NULL). More info in details
 #' @return a data.table with new scores (size dependent on score used)
 #' @family coverage
 #' @export
@@ -288,6 +295,16 @@ coverageScorings <- function(coverage, scoring = "zscore") {
     if (is.null(coverage$frame))
       stop("Can not use frameSum scoring when no frames are given!")
     groupFPF <- quote(list(genes, frame))
+    scoring <- "sum"
+  } else if (scoring == "frameSumPerL") {
+    if (is.null(coverage$frame))
+      stop("Can not use frameSum scoring when no frames are given!")
+    groupFPF <- quote(list(fraction, frame))
+    scoring <- "sum"
+  } else if (scoring == "frameSumPerLG") {
+    if (is.null(coverage$frame))
+      stop("Can not use frameSum scoring when no frames are given!")
+    groupFPF <- quote(list(fraction, genes, frame))
     scoring <- "sum"
   } else if (scoring == "periodic") {
     groupFPF <- ifelse(!is.null(cov$fraction),
@@ -419,12 +436,56 @@ coveragePerTiling <- function(grl, reads, is.sorted = FALSE,
   return(coverage)
 }
 
+#' Find proportion of reads per position per read length in region
+#'
+#' This is defined as:
+#' Given some transcript region (like CDS), get coverage per position.
+#'
+#'
+#' @inheritParams windowPerReadLength
+#' @param withFrames logical TRUE, add ORF frame (frame 0, 1, 2), starting
+#' on first position of every grl.
+#' @param BPPARAM how many cores/threads to use? default: bpparam()
+#' @return a data.table with lengths by coverage.
+#' @family coverage
+#' @importFrom data.table rbindlist
+#' @export
+#' @examples
+#' # Raw counts per gene per position
+#' cds <- GRangesList(tx1 = GRanges("1", 100:129, "+"))
+#' reads <- GRanges("1", seq(79,129, 3), "+")
+#' reads$size <- 28 # <- Set read length of reads
+#' regionPerReadLength(cds, reads, scoring = NULL)
+#' ## Sum up reads in each frame per read length per gene
+#' regionPerReadLength(cds, reads, scoring = "frameSumPerLG")
+regionPerReadLength <- function(grl, reads, acceptedLengths = NULL,
+                                withFrames = TRUE,
+                                scoring = "transcriptNormalized",
+                                weight = "score", BPPARAM = bpparam()) {
+  rWidth <- readWidths(reads)
+  all_lengths <- sort(unique(rWidth))
+  if (!is.null(acceptedLengths))
+    all_lengths <- all_lengths[all_lengths %in% acceptedLengths]
+  hasHits <- ORFik:::hasHits(grl, reads)
+  grl <- grl[hasHits]
+
+  dt <- bplapply(all_lengths, function(l, grl, reads, weight, rWidth, scoring) {
+    d <- coveragePerTiling(grl, reads[rWidth == l], as.data.table = TRUE, withFrames = TRUE,
+                           weight = weight, is.sorted = TRUE)
+    d[, fraction := l]
+    return(coverageScorings(d, scoring))
+  }, grl = grl, reads = reads, weight = weight, rWidth = rWidth,
+     scoring = scoring, BPPARAM = BPPARAM)
+
+  dt <- rbindlist(dt)
+  return(dt)
+}
+
 #' Find proportion of reads per position per read length in window
 #'
 #' This is defined as:
 #' Fraction of reads  per read length, per position in whole window (defined
 #' by upstream and downstream)
-#'
 #' If tx is not NULL, it gives a metaWindow, centered around startSite of
 #' grl from upstream and downstream. If tx is NULL, it will use only downstream
 #' , since it has no reference on how to find upstream region.
@@ -443,15 +504,21 @@ coveragePerTiling <- function(grl, reads, is.sorted = FALSE,
 #' @param zeroPosition an integer DEFAULT (upstream), what is the center point?
 #' Like leaders and cds combination, then 0 is the TIS and -1 is last base in leader.
 #' NOTE!: if windows have different widths, this will be ignored.
-#' @param scoring a character (transcriptNormalized), one of
-#' (zscore, transcriptNormalized, mean, median, sum, sumLength, fracPos),
+#' @param scoring a character (transcriptNormalized), which meta coverage scoring ?
+#' one of (zscore, transcriptNormalized, mean, median, sum, sumLength, fracPos),
 #' see ?coverageScorings for more info. Use to decide a scoring of hits
-#' per position for metacoverage etc.
+#' per position for metacoverage etc. Set to NULL if you do not want meta coverage,
+#' but instead want per gene per position raw counts.
 #' @return a data.table with lengths by coverage / vector of proportions
 #' @family coverage
 #' @importFrom data.table rbindlist
 #' @export
-#'
+#' @examples
+#' cds <- GRangesList(tx1 = GRanges("1", 100:129, "+"))
+#' tx <- GRangesList(tx1 = GRanges("1", 80:129, "+"))
+#' reads <- GRanges("1", seq(79,129, 3), "+")
+#' windowPerReadLength(cds, tx, reads, scoring = "sum")
+#' windowPerReadLength(cds, tx, reads, scoring = "transcriptNormalized")
 windowPerReadLength <- function(grl, tx = NULL, reads, pShifted = TRUE,
                                 upstream = if (pShifted) 5 else 20,
                                 downstream = if (pShifted) 20 else 5,

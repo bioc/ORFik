@@ -73,6 +73,7 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
   message("STAR indexing:\n")
   print(full); print("\n")
   if (.Platform$OS.type == "unix") {
+    #memory_GB <- as.integer(gsub(" |MemTotal:|kB", replacement = "", a)) / 1e6
 
     message("Starting indexing at time:")
     print(Sys.time())
@@ -81,8 +82,9 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
     if (!wait)
       out <- "Wait for index to be complete before you run Alignment!"
     message(out)
+    saveRDS(object = output.dir, finished.file)
   } else stop("STAR is not supported on windows!")
-  saveRDS(object = output.dir, finished.file)
+
   return(output.dir)
 }
 
@@ -136,7 +138,7 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
 #'  \item{tR : }{trna depletion}
 #'  \item{ge : }{genome alignment}
 #'  \item{all: }{run steps: "tr-co-ge" or "tr-ph-rR-nc-tR-ge", depending on if you
-#'  have merged contaminants}
+#'  have merged contaminants or not}
 #' }
 #'  If not "all", a subset of these ("tr-co-ph-rR-nc-tR-ge")\cr
 #'  If co (merged contaminants) is used, non of the specific contaminants can be specified,
@@ -160,7 +162,11 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
 #'  \item{small_RNA (standard for ~50 bp sequencing): }{TGGAATTCTCGG}
 #'  \item{nextera: }{CTGTCTCTTATA}
 #' }
-#' @param min.length 15, minimum length of reads to pass filter.
+#' @param min.length 20, minimum length of aligned read without mismatches
+#' to pass filter.
+#' @param mismatches 3, max non matched bases. Excludes soft-clipping, this only
+#' filters reads that have defined mismatches in STAR.
+#' Only applies for genome alignment step.
 #' @param trim.front 0, default trim 0 bases 5'. For Ribo-seq set use 0.
 #' Ignored if tr (trim) is not one of the arguments in "steps"
 #' @param alignment.type default: "Local": standard local alignment with soft-clipping allowed,
@@ -218,7 +224,8 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
                               star.path = STAR.install(), fastp = install.fastp(),
                               paired.end = FALSE,
                               steps = "tr-ge", adapter.sequence = "auto",
-                              min.length = 15, trim.front = 0,
+                              min.length = 20, mismatches = 3,
+                              trim.front = 0,
                               alignment.type = "Local", max.cpus = min(90, detectCores() - 1),
                               wait = TRUE,
                               include.subfolders = "n", resume = NULL,
@@ -247,8 +254,9 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
 
   full <- paste(script.folder, "-f", input.dir, "-o", output.dir,
                 "-p", paired.end,
-                "-l", min.length, "-g", index.dir, "-s", steps, resume,
-                "-a", adapter.sequence, "-t", trim.front, "-M", max.multimap,
+                "-l", min.length, "-T", mismatches, "-g", index.dir,
+                "-s", steps, resume, "-a", adapter.sequence,
+                "-t", trim.front, "-M", max.multimap,
                 "-A", alignment.type, "-m", max.cpus, "-i", include.subfolders,
                 star.path, fastp, "-I",script.single, "-C", cleaning)
   if (.Platform$OS.type == "unix") {
@@ -258,7 +266,11 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
     out <- system(command = full, wait = wait)
     out <- ifelse(out == 0, "Alignment done", "Alignment process failed!")
     message(out)
-    if (multiQC & wait & (out == "Alignment done")) STAR.multiQC(output.dir)
+    if (multiQC & wait & (out == "Alignment done") &
+          dir.exists(paste0(output.dir,"/aligned/"))) {
+      STAR.allsteps.multiQC(output.dir, steps = steps)
+    }
+
   } else stop("STAR is not supported on windows!")
   return(output.dir)
 }
@@ -290,7 +302,7 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
 STAR.align.single <- function(file1, file2 = NULL, output.dir, index.dir,
                               star.path = STAR.install(), fastp = install.fastp(),
                               steps = "tr-ge", adapter.sequence = "auto",
-                              min.length = 15, trim.front = 0,
+                              min.length = 20, mismatches = 3, trim.front = 0,
                               alignment.type = "Local", max.cpus = min(90, detectCores() - 1),
                               wait = TRUE, resume = NULL, max.multimap = 10,
                               script.single = system.file("STAR_Aligner",
@@ -309,9 +321,10 @@ STAR.align.single <- function(file1, file2 = NULL, output.dir, index.dir,
   fastp <- ifelse(is.null(fastp), "", paste("-P", fastp))
 
   full <- paste(script.single, "-f", file1, file2, "-o", output.dir,
-                "-l", min.length, "-g", index.dir, "-s", steps,
-                resume, "-a", adapter.sequence, "-t", trim.front,
-                "-A", alignment.type, "-m", max.cpus, "-M", max.multimap,
+                "-l", min.length, "-T", mismatches, "-g", index.dir,
+                "-s", steps, resume, "-a", adapter.sequence,
+                "-t", trim.front, "-A", alignment.type, "-m", max.cpus,
+                "-M", max.multimap,
                 star.path, fastp) # "-C", cleaning
   if (.Platform$OS.type == "unix") {
     print(full)

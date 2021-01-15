@@ -6,7 +6,7 @@
 QC_count_tables <- function(df, out.dir, BPPARAM = bpparam()) {
   txdb <- loadTxdb(df)
   loadRegions(txdb, parts = c("mrna", "leaders", "cds", "trailers", "tx"))
-  outputLibs(df, leaders, type = "ofst")
+  outputLibs(df, leaders, type = "ofst", BPPARAM = BPPARAM)
   libs <- bamVarName(df)
   # Update this to use correct
   convertLibs(df, NULL) # Speedup by reducing unwanted information
@@ -14,7 +14,8 @@ QC_count_tables <- function(df, out.dir, BPPARAM = bpparam()) {
   # Make count tables
   dt_list <- countTable_regions(df, geneOrTxNames = "tx",
                                 longestPerGene = FALSE,
-                                out.dir = out.dir)
+                                out.dir = out.dir,
+                                BPPARAM = BPPARAM)
   # Special regions rRNA etc..
   gff.df <- importGtfFromTxdb(txdb)
   types <- unique(gff.df$transcript_biotype)
@@ -33,8 +34,9 @@ QC_count_tables <- function(df, out.dir, BPPARAM = bpparam()) {
     lib <- get(s)
     # Raw stats
     res <- data.frame(Sample = s, Raw_reads = as.numeric(NA),
+                      Trimmed_reads = as.numeric(NA),
                       Aligned_reads = length(lib))
-    res$ratio_aligned_raw = res$Aligned_reads / res$Raw_reads
+    res$percentage_aligned_raw = 100 * (res$Aligned_reads / res$Raw_reads)
 
     # mRNA region stats
     index <- which(s == libs)
@@ -42,7 +44,7 @@ QC_count_tables <- function(df, out.dir, BPPARAM = bpparam()) {
                            LEADERS = colSums(assay(dt_list[["leaders"]]))[index],
                            CDS = colSums(assay(dt_list[["cds"]]))[index],
                            TRAILERs = colSums(assay(dt_list[["trailers"]]))[index])
-    res_mrna[,ratio_mrna_aligned := round(mRNA / res$Aligned_reads, 6)]
+    res_mrna[,percentage_mrna_aligned := round(100* (mRNA / res$Aligned_reads), 6)]
     res_mrna[,ratio_cds_mrna := round(CDS / mRNA, 6)]
     res_mrna[, ratio_cds_leader := round(CDS / LEADERS, 6)]
 
@@ -76,23 +78,11 @@ QC_count_tables <- function(df, out.dir, BPPARAM = bpparam()) {
 trim_detection <- function(df, finals, out.dir) {
   # Update raw reads to real number
   # Needs a folder called trim
-  trim_folder <- paste0(out.dir, "/../trim/")
+  trim_folder <- file.path(out.dir, "..", "trim/")
   if (dir.exists(trim_folder)) {
     message("Create raw read counts")
 
-    raw_library <- dir(trim_folder, "\\.json", full.names = TRUE)
-
-    raw_reads <- data.table()
-    for (lib in raw_library) { # Read json files
-      a <- data.table::fread(lib, nrows = 7, skip = 2, sep = ":", col.names = c("id", "value"))
-      a$value <- as.numeric(gsub(",", "", a$value))
-      a$id <- gsub("\\\t", "", a$id)
-      raw_reads <- rbind(raw_reads, a$value[1])
-    }
-    raw_data <- cbind(raw_library = basename(raw_library), raw_reads = raw_reads)
-
-    raw_data$raw_library <- gsub("report_|\\.json$",
-                                 x = raw_data$raw_library, replacement = "")
+    raw_data <- trimming.table(trim_folder)
     # Verify rows have equal order as experiment
     order <- unlist(lapply(X = raw_data$raw_library,
                            function(p) grep(pattern = p, x = df$filepath, fixed = TRUE)))
@@ -114,98 +104,17 @@ trim_detection <- function(df, finals, out.dir) {
       message("Could not find raw read count of your data, setting to NA")
     } else {
       class(finals$Raw_reads) <- "numeric"
+      class(finals$Trimmed_reads) <- "numeric"
       finals[order,]$Raw_reads <- raw_data$raw_reads
-      finals$ratio_aligned_raw = round(finals$Aligned_reads /
-                                         finals$Raw_reads, 4)
+      finals[order,]$Trimmed_reads <- raw_data$trim_reads
+      finals$percentage_aligned_raw = round(100* (finals$Aligned_reads /
+                                         finals$Raw_reads), 4)
     }
   } else {
     message("Could not find raw read counts of data, setting to NA")
     message(paste0("No folder called:", trim_folder))
   }
   return(finals)
-}
-
-#' Make plot of ORFik QCreport
-#'
-#' From post-alignment QC relative to annotation, make a plot for all samples.
-#' Will contain things like aligned_reads, read lengths, reads overlapping leaders,
-#' cds, trailers, rRNA, tRNA etc.
-#' @param stats path to ORFik QC stats .csv file, or the experiment object.
-#' @param output.dir NULL or character path, default: NULL, plot not saved to disc.
-#' If defined saves plot to that directory with the name "/STATS_plot.png".
-#' @return ggplot object of the the statistics data
-#' @importFrom data.table melt
-#' @importFrom gridExtra grid.arrange
-#' @export
-#' @examples
-#' df <- ORFik.template.experiment()[3,]
-#' ## First make QC report
-#' # QCreport(df)
-#' ## Now you can get plot
-#' # QCstats.plot(df)
-QCstats.plot <- function(stats, output.dir = NULL) {
-  if (is(stats, "experiment")) {
-    stats <- QCstats(stats)
-    if (is.null(stats))
-      stop("No QC report made for experiment, run ORFik QCreport")
-  } else {
-    stats <- fread(stats)
-  }
-  if (colnames(stats)[1] == "V1") colnames(stats)[1] <- "sample_id"
-
-  stats$sample_id <-  factor(stats$Sample,
-                             labels = as.character(seq(length(stats$Sample))),
-                             levels = stats$Sample, ordered = TRUE)
-
-  dt_plot <- melt(stats, id.vars = c("Sample", "sample_id"))
-
-  stat_regions <- colnames(stats)[c(3:5, 12, grep("ratio_mrna_aligned|rRNA", colnames(stats)))]
-  dt_STAT <- dt_plot[(variable %in% stat_regions),]
-  gg_STAT <- ggplot(dt_STAT, aes(x=sample_id, y = value, group = Sample, fill = Sample)) +
-    geom_bar(aes(color = Sample), stat="identity", position=position_dodge())+
-    scale_fill_brewer(palette="Paired")+
-    ylab("Annotation & Alignment feature, value") +
-    xlab("Samples") +
-    facet_wrap(  ~ variable, scales = "free") +
-    theme_minimal()
-  # Read lengths
-  read_length_rows <- colnames(stats)[c(6:8, 10:11)]
-  dt_read_lengths <- dt_plot[(variable %in% read_length_rows),]
-  gg_read_lengths <- ggplot(dt_read_lengths, aes(y = value, x = sample_id)) +
-    geom_boxplot() +
-    ggtitle("Read lengths boxplot:") +
-    ylab("Read length") +
-    scale_y_log10() +
-    theme_minimal()
-  # mRNA regions
-  mRNA_regions <- colnames(stats)[c(13:15)]
-  dt_mRNA_regions <- dt_plot[(variable %in% mRNA_regions),]
-
-  gg_mRNA_regions <- ggplot(dt_mRNA_regions, aes(y = value, x = sample_id)) +
-    geom_bar(aes(fill = variable), stat="identity", position = "fill")+
-    ggtitle("mRNA region ratios:") +
-    ylab("ratio") +
-    theme_minimal()
-
-  # Non-mRNA regions
-  non_mRNA_regions <- colnames(stats)[c(20:length(colnames(stats)))]
-  dt_non_mRNA_regions <- dt_plot[(variable %in% non_mRNA_regions),]
-
-  gg_non_mRNA_regions <-
-    ggplot(dt_non_mRNA_regions, aes(y = value, x = sample_id)) +
-    geom_bar(aes(fill = variable), stat="identity", position = "stack")+
-    ggtitle("non-mRNA transcripts:") +
-    ylab("counts") +
-    theme_minimal()
-
-  ncols <- 2
-  plot_list <- list(gg_STAT, gg_read_lengths, gg_mRNA_regions, gg_non_mRNA_regions)
-  final <- gridExtra::grid.arrange(grobs = plot_list, ncol = ncols)
-
-  if (!is.null(output.dir)) {
-    ggsave(paste0(output.dir, "/STATS_plot.png"), final, width = 13, height = 8)
-  }
-  return(gg_STAT)
 }
 
 #' Load ORFik QC Statistics report
@@ -217,7 +126,7 @@ QCstats.plot <- function(stats, output.dir = NULL) {
 #' combined with annotation to create relevant statistics.
 #' @inheritParams QCreport
 #' @param path path to QC statistics report, default:
-#' paste0(dirname(df$filepath[1]), "/QC_STATS/STATS.csv")
+#' file.path(dirname(df$filepath[1]), "/QC_STATS/STATS.csv")
 #' @family QC report
 #' @return data.table of QC report or NULL if not exists
 #' @export
@@ -226,11 +135,46 @@ QCstats.plot <- function(stats, output.dir = NULL) {
 #' ## First make QC report
 #' # QCreport(df)
 #' # stats <- QCstats(df)
-QCstats <- function(df, path = paste0(dirname(df$filepath[1]),
-                                      "/QC_STATS/STATS.csv")) {
+QCstats <- function(df, path = file.path(dirname(df$filepath[1]),
+                                         "/QC_STATS/STATS.csv")) {
   if (!file.exists(path)) {
     message("No QC report made, run QCreport. Or wrong path given.")
     return(invisible(NULL))
   }
   return(fread(path, header = TRUE))
+}
+
+#' Make table of readlengths
+#'
+#' Summarizing all libraries in experiment,
+#' make a table of proportion of read lengths.
+#' @param output.dir NULL or character path, default: NULL, plot not saved to disc.
+#' If defined saves plot to that directory with the name "./readLengths.csv".
+#' @inheritParams heatMapRegion
+#' @inheritParams QC_count_tables
+#' @return a data.table object of the the read length data with columns:
+#' \code{c("sample", "sample_id", "read length", "counts",
+#'  "counts_per_sample", "perc_of_counts_per_sample")}
+readLengthTable <- function(df, output.dir = NULL, type = "ofst",
+                            BPPARAM = bpparam()) {
+  file.name <- file.path(output.dir, "readLengths.csv")
+  if (file.exists(file.name)) return(fread(file.name, header = TRUE))
+
+  outputLibs(df, type = type, BPPARAM = BPPARAM)
+  dt_read_lengths <- data.table(); sample_id <- 1
+  for(lib in bamVarName(df)) {
+    dt_read_lengths <- rbind(dt_read_lengths, data.table(sample = lib, sample_id, table(readWidths(get(lib)))))
+    sample_id <- sample_id + 1
+  }
+
+  colnames(dt_read_lengths) <- c("sample", "sample_id", "read length", "counts")
+  dt_read_lengths[, counts_per_sample := sum(counts), by = sample_id]
+  dt_read_lengths[, perc_of_counts_per_sample :=
+                    (counts / counts_per_sample)*100,
+                  by = sample_id]
+
+  if (!is.null(output.dir)) {
+    fwrite(dt_read_lengths, file.name)
+  }
+  return(dt_read_lengths)
 }

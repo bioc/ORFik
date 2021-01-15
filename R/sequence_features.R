@@ -64,7 +64,6 @@ distToCds <- function(ORFs, fiveUTRs, cds = NULL){
   return(cdsStarts - orfEnds)
 }
 
-
 #' Make a score for each ORFs start region by proximity to Kozak
 #'
 #' The closer the sequence is to the Kozak sequence

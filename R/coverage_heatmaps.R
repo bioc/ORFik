@@ -39,6 +39,11 @@
 #' see ?coverageScorings for info and more alternatives.
 #' @param title a character, default NULL (no title),
 #' what is the top title of plot?
+#' @param gradient.max numeric, defualt: max(coverage$score). What data value
+#' should the top color be ? Good to use if you want to compare 2 samples, with the
+#' same color intensity, in that case set this value to the max score of the
+#' 2 coverage tables.
+#' @inheritParams yAxisScaler
 #' @return a ggplot object of the coverage plot, NULL if output is set,
 #' then the plot will only be saved to location.
 #' @import ggplot2
@@ -66,7 +71,9 @@ coverageHeatMap <- function(coverage, output = NULL, scoring = "zscore",
                             legendPos = "right", addFracPlot = FALSE,
                             xlab = "Position relative to start site",
                             ylab = "Protected fragment length",
-                            colors = "default", title = NULL) {
+                            colors = "default", title = NULL,
+                            increments.y = "auto",
+                            gradient.max = max(coverage$score)) {
   coverage$fraction <- factor(coverage$fraction,
                               levels = unique(coverage$fraction),
                               labels = unique(coverage$fraction))
@@ -80,19 +87,22 @@ coverageHeatMap <- function(coverage, output = NULL, scoring = "zscore",
   plot <- ggplot(coverage, aes(x = position, y = fraction, fill = score)) +
     geom_tile()  +
     scale_fill_gradientn(colours = colors,
+                         limits = c(min(coverage$score), gradient.max),
                          name = prettyScoring(scoring)) +
     xlab(xlab) +
     ylab(ylab) +
     scale_x_continuous(breaks = xAxisScaler(coverage$position)) +
     theme_bw() + theme(panel.grid.major = element_blank(),
                        panel.grid.minor = element_blank()) +
-    scale_y_discrete(breaks = yAxisScaler(levels(coverage$fraction))) +
+    scale_y_discrete(breaks = yAxisScaler(levels(coverage$fraction),
+                                          increments.y)) +
     theme(legend.position = legendPos)
 
   if (addFracPlot) {
+    if (legendPos != "none") legendPos <- "bottom"
     plot2 <- pSitePlot(coverage, forHeatmap = TRUE) + ggtitle(title)
     plot <- plot_grid(plot2,
-                      plot + theme(legend.position = "bottom",
+                      plot + theme(legend.position = legendPos,
                                    plot.margin = unit(c(0,0.3,0,0.8), "cm")),
                       ncol = 1, rel_heights = c(1,4), align = "v")
   } else plot <- plot + ggtitle(title)

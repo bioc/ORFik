@@ -37,8 +37,8 @@ from install.sratoolkit()}
 \item{settings}{a string of arguments for fastq-dump,
 default: paste("--gzip", "--skip-technical", "--split-files")}
 
-\item{subset}{a numeric or NULL, default NULL (no subset). If defined as
-a numeric will download only the first n reads specified by subset.}
+\item{subset}{an integer or NULL, default NULL (no subset). If defined as
+a integer will download only the first n reads specified by subset.}
 
 \item{compress}{logical, default TRUE. Download compressed files ".gz".}
 
@@ -52,9 +52,9 @@ a character vector of download files filepaths
 Multicore version download, see documentation for SRA toolkit for more information.
 }
 \examples{
-\dontrun{
-## Simple single SRR run of YEAST
 SRR <- c("SRR453566") # Can be more than one
+\donttest{
+## Simple single SRR run of YEAST
 outdir <- tempdir() # Specify output directory
 # Download, get 5 first reads
 download.SRA(SRR, outdir, subset = 5)

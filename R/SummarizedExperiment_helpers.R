@@ -169,23 +169,28 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' Loads the the file in that directory with the regex region.rds,
 #' where region is what is defined by argument.
 #' @param df an ORFik \code{\link{experiment}} or path to folder with
-#' countTable, use path if not same folder as experiment libraries.
+#' countTable, use path if not same folder as experiment libraries. Will subset to
+#' the count tables specified if df is experiment. If experiment has 4 rows and you subset it
+#' to only 2, then only those 2 count tables will be outputted.
 #' @param region a character vector (default: "mrna"), make raw count matrices
 #'  of whole mrnas or one of (leaders, cds, trailers).
-#' @param type default: "count" (raw counts matrix),
+#' @param type character, default: "count" (raw counts matrix).
+#' Which object type and normalization do you want ?
 #' "summarized" (SummarizedExperiment object),
 #' "deseq" (Deseq2 experiment, design will be all valid non-unique
 #' columns except replicates, change by using DESeq2::design,
-#' normalization alternatives are: "fpkm", "log2fpkm" or "log10fpkm"
+#' normalization alternatives are: "fpkm", "log2fpkm" or "log10fpkm".
 #' @param collapse a logical/character (default FALSE), if TRUE all samples
 #' within the group SAMPLE will be collapsed to one. If "all", all
 #' groups will be merged into 1 column called merged_all. Collapse is defined
 #' as rowSum(elements_per_group) / ncol(elements_per_group)
-#' @return a data.table of columns as counts per library, column name
+#' @return a data.table/SummarizedExperiment/DESeq object
+#' of columns as counts / normalized counts per library, column name
 #' is name of library. Rownames must be unique for now. Might change.
 #' @importFrom DESeq2 DESeqDataSet
 #' @importFrom stats as.formula
 #' @export
+#' @family countTable
 #' @examples
 #' # Make experiment
 #' ORFik.template.experiment()
@@ -208,7 +213,10 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 countTable <- function(df, region = "mrna", type = "count",
                        collapse = FALSE) {
   # TODO fix bug if deseq!
+  df.temp <- NULL
   if (is(df, "experiment")) {
+    if (nrow(df) == 0) stop("df experiment has 0 rows (samples)!")
+    df.temp <- df
     dir = dirname(df$filepath[1])
     df <- paste0(dir, "/QC_STATS")
   }
@@ -219,6 +227,31 @@ countTable <- function(df, region = "mrna", type = "count",
     }
     if (length(df) == 1) {
       res <- readRDS(df)
+      # Subset to samples wanted
+      if (!is.null(df.temp)) {
+        if ((ncol(res) != nrow(df.temp))) {
+          subset <- if (sum(colnames(res) %in% bamVarName(df.temp, FALSE)) == nrow(df.temp)) {
+            colnames(res) %in% bamVarName(df.temp, FALSE)
+          } else if (sum(colnames(res) %in%
+                         bamVarName(df.temp, FALSE, skip.experiment = FALSE)) == nrow(df.temp)) {
+            colnames(res) %in% bamVarName(df.temp, FALSE, skip.experiment = FALSE)
+          } else if (sum(colnames(res) %in%
+                         bamVarName(df.temp)) == nrow(df.temp)) {
+            colnames(res) %in% bamVarName(df.temp)
+          } else if (sum(colnames(res) %in%
+                         bamVarName(df.temp, FALSE, FALSE)) == nrow(df.temp)) {
+            colnames(res) %in% bamVarName(df.temp, FALSE, FALSE)
+          } else if (sum(colnames(res) %in%
+                         bamVarName(df.temp, TRUE, FALSE, FALSE)) == nrow(df.temp)) {
+            colnames(res) %in% bamVarName(df.temp, TRUE, FALSE, FALSE)
+          } else if (sum(colnames(res) %in%
+                         bamVarName(df.temp, FALSE, FALSE, FALSE)) == nrow(df.temp)) {
+            colnames(res) %in% bamVarName(df.temp, FALSE, FALSE, FALSE)
+          } else stop("No valid names for count tables found from experiment")
+          res <- res[, subset]
+        }
+      }
+      # Decide output format
       if (type == "summarized") return(res)
       if (type == "deseq") {
         # remove replicate from formula
@@ -254,6 +287,7 @@ countTable <- function(df, region = "mrna", type = "count",
 #' @param BPPARAM how many cores/threads to use? default: bpparam()
 #' @return a list of data.table, 1 data.table per region. The regions
 #' will be the names the list elements.
+#' @family countTable
 countTable_regions <- function(df, out.dir = dirname(df$filepath[1]),
                                longestPerGene = TRUE,
                                geneOrTxNames = "tx",
@@ -268,7 +302,7 @@ countTable_regions <- function(df, out.dir = dirname(df$filepath[1]),
   libs <- bplapply(
     regions,
     function(region, countDir, df, geneOrTxNames, longestPerGene) {
-     message("Making count tables for region:")
+     message("- Creating read count tables for region:")
      message(region)
      path <- paste0(countDir, region)
      makeSummarizedExperimentFromBam(df, region = region,

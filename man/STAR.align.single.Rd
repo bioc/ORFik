@@ -13,7 +13,8 @@ STAR.align.single(
   fastp = install.fastp(),
   steps = "tr-ge",
   adapter.sequence = "auto",
-  min.length = 15,
+  min.length = 20,
+  mismatches = 3,
   trim.front = 0,
   alignment.type = "Local",
   max.cpus = min(90, detectCores() - 1),
@@ -61,7 +62,7 @@ give the output files from that trimmer as input.dir here.}
  \item{tR : }{trna depletion}
  \item{ge : }{genome alignment}
  \item{all: }{run steps: "tr-co-ge" or "tr-ph-rR-nc-tR-ge", depending on if you
- have merged contaminants}
+ have merged contaminants or not}
 }
  If not "all", a subset of these ("tr-co-ph-rR-nc-tR-ge")\cr
  If co (merged contaminants) is used, non of the specific contaminants can be specified,
@@ -87,7 +88,12 @@ presets:\cr
  \item{nextera: }{CTGTCTCTTATA}
 }}
 
-\item{min.length}{15, minimum length of reads to pass filter.}
+\item{min.length}{20, minimum length of aligned read without mismatches
+to pass filter.}
+
+\item{mismatches}{3, max non matched bases. Excludes soft-clipping, this only
+filters reads that have defined mismatches in STAR.
+Only applies for genome alignment step.}
 
 \item{trim.front}{0, default trim 0 bases 5'. For Ribo-seq set use 0.
 Ignored if tr (trim) is not one of the arguments in "steps"}
@@ -155,6 +161,7 @@ bam.dir <- "data/processed/human_rna_seq"
 \seealso{
 Other STAR: 
 \code{\link{STAR.align.folder}()},
+\code{\link{STAR.allsteps.multiQC}()},
 \code{\link{STAR.index}()},
 \code{\link{STAR.install}()},
 \code{\link{STAR.multiQC}()},

@@ -93,7 +93,7 @@ try ?floss
  # a small example without cage-seq data:
  # we will find ORFs in the 5' utrs
  # and then calculate features on them
- \dontrun{
+ \donttest{
  if (requireNamespace("BSgenome.Hsapiens.UCSC.hg19")) {
   library(GenomicFeatures)
   # Get the gtf txdb file
@@ -122,7 +122,7 @@ try ?floss
   # set RNA seq to duplicate transcripts
   RNA <- unlistGrl(exonsBy(txdb, by = "tx", use.names = TRUE))
 
-  computeFeaturesCage(grl = fiveUTR_ORFs, RFP = RFP,
+  ORFik:::computeFeaturesCage(grl = fiveUTR_ORFs, RFP = RFP,
    RNA = RNA, Gtf = txdb, faFile = faFile)
 
 }
@@ -153,6 +153,7 @@ Other features:
 \code{\link{ribosomeStallingScore}()},
 \code{\link{startRegionCoverage}()},
 \code{\link{startRegion}()},
+\code{\link{stopRegion}()},
 \code{\link{subsetCoverage}()},
 \code{\link{translationalEff}()}
 }

@@ -44,10 +44,11 @@ Default NULL, means all lengths accepted.}
 Like leaders and cds combination, then 0 is the TIS and -1 is last base in leader.
 NOTE!: if windows have different widths, this will be ignored.}
 
-\item{scoring}{a character (transcriptNormalized), one of
-(zscore, transcriptNormalized, mean, median, sum, sumLength, fracPos),
+\item{scoring}{a character (transcriptNormalized), which meta coverage scoring ?
+one of (zscore, transcriptNormalized, mean, median, sum, sumLength, fracPos),
 see ?coverageScorings for more info. Use to decide a scoring of hits
-per position for metacoverage etc.}
+per position for metacoverage etc. Set to NULL if you do not want meta coverage,
+but instead want per gene per position raw counts.}
 
 \item{weight}{(default: 'score'), if defined a character name
 of valid meta column in subject. GRanges("chr1", 1, "+", score = 5),
@@ -63,18 +64,24 @@ a data.table with lengths by coverage / vector of proportions
 This is defined as:
 Fraction of reads  per read length, per position in whole window (defined
 by upstream and downstream)
-}
-\details{
 If tx is not NULL, it gives a metaWindow, centered around startSite of
 grl from upstream and downstream. If tx is NULL, it will use only downstream
 , since it has no reference on how to find upstream region.
 The exception is when upstream is negative, that is,
 going into downstream region of the object.
 }
+\examples{
+cds <- GRangesList(tx1 = GRanges("1", 100:129, "+"))
+tx <- GRangesList(tx1 = GRanges("1", 80:129, "+"))
+reads <- GRanges("1", seq(79,129, 3), "+")
+windowPerReadLength(cds, tx, reads, scoring = "sum")
+windowPerReadLength(cds, tx, reads, scoring = "transcriptNormalized")
+}
 \seealso{
 Other coverage: 
 \code{\link{coverageScorings}()},
 \code{\link{metaWindow}()},
+\code{\link{regionPerReadLength}()},
 \code{\link{scaledWindowPositions}()}
 }
 \concept{coverage}

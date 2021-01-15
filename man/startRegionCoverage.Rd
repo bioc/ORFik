@@ -76,6 +76,7 @@ Other features:
 \code{\link{ribosomeReleaseScore}()},
 \code{\link{ribosomeStallingScore}()},
 \code{\link{startRegion}()},
+\code{\link{stopRegion}()},
 \code{\link{subsetCoverage}()},
 \code{\link{translationalEff}()}
 }

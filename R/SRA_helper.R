@@ -69,8 +69,8 @@ install.sratoolkit <- function(folder = "~/bin", version = "2.10.8") {
 #' from install.sratoolkit()
 #' @param settings a string of arguments for fastq-dump,
 #' default: paste("--gzip", "--skip-technical", "--split-files")
-#' @param subset a numeric or NULL, default NULL (no subset). If defined as
-#' a numeric will download only the first n reads specified by subset.
+#' @param subset an integer or NULL, default NULL (no subset). If defined as
+#' a integer will download only the first n reads specified by subset.
 #' @param compress logical, default TRUE. Download compressed files ".gz".
 #' @param BPPARAM how many cores/threads to use? default: bpparam().
 #' To see number of threads used, do \code{bpparam()$workers}
@@ -78,9 +78,9 @@ install.sratoolkit <- function(folder = "~/bin", version = "2.10.8") {
 #' @references https://ncbi.github.io/sra-tools/fastq-dump.html
 #' @export
 #' @examples
-#' \dontrun{
-#' ## Simple single SRR run of YEAST
 #' SRR <- c("SRR453566") # Can be more than one
+#' \donttest{
+#' ## Simple single SRR run of YEAST
 #' outdir <- tempdir() # Specify output directory
 #' # Download, get 5 first reads
 #' download.SRA(SRR, outdir, subset = 5)
@@ -97,6 +97,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
                          subset = NULL,
                          compress = TRUE,
                          BPPARAM = bpparam()) {
+
   # If character presume SRR, if not check for column Run or SRR
   SRR <- if (is.character(info)) { # if character
     info
@@ -114,6 +115,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
   settings <- paste("--outdir", outdir, settings)
   if (!is.null(subset)) {
     if(!is.numeric(subset)) stop("subset must be numeric if not NULL")
+    subset <- as.integer(subset)
     settings <- paste(settings, "-X", subset)
   }
   if (compress) {
@@ -130,6 +132,11 @@ download.SRA <- function(info, outdir, rename = TRUE,
   files <- unlist(lapply(SRR, function(S)
     dir(outdir, paste0(S, ".*", search_it), full.names = TRUE))
   )
+  if (length(SRR) != length(files)) {
+    warning("Some of the files specified was not downloaded,",
+            " are you behind a strict firewall?")
+    message("If only few files remaining, subset to those SRR numbers and run again")
+  }
 
   rename <- ifelse(!is.character(info) & rename, TRUE, FALSE)
   if (rename) {
@@ -154,9 +161,10 @@ download.SRA <- function(info, outdir, rename = TRUE,
 #' @importFrom xml2 read_xml
 #' @importFrom xml2 as_list
 #' @export
+#' @references doi: 10.1093/nar/gkq1019
 #' @examples
 #' ## Originally on SRA
-#' # outdir <- tempdir() # Specify output directory
+#' outdir <- tempdir() # Specify output directory
 #' # download.SRA.metadata("SRP226389", outdir)
 #' ## ORiginally on ENA
 #' # download.SRA.metadata("ERP116106", outdir)

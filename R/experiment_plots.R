@@ -85,16 +85,22 @@ transcriptWindow <- function(leaders, cds, trailers, df, outdir = NULL,
         coverage <- rnaNormalize(coverage, df, dfr, cds)
         title <- paste0(title, " RNA-normalized")
       }
-      for(s in scores) {
+      a <- bplapply(scores, function(s, coverage, colors, title,
+                                            idName, outdir, format, df) {
+        message(s)
         a <- windowCoveragePlot(coverage, scoring = s, colors = colors,
                                 title = title)
         if (!is.null(outdir)) {
           idName <- ifelse(idName == "", "", paste0("_", idName))
           ggsave(pasteDir(outdir, paste0(df@experiment,"_cp_all_", s,
-                                         idName, format)), a,
+                                         idName, format)),
+                 a,
                  height = 10)
         }
-      }
+        return(a)
+      }, coverage = coverage, colors = colors, title = title,
+      idName = idName, outdir = outdir, format = format, df = df,
+      BPPARAM = BPPARAM)
     }
   }
   if (returnPlot) return(a)

@@ -25,8 +25,11 @@ Downloads metadata from SRA
 }
 \examples{
 ## Originally on SRA
-# outdir <- tempdir() # Specify output directory
+outdir <- tempdir() # Specify output directory
 # download.SRA.metadata("SRP226389", outdir)
 ## ORiginally on ENA
 # download.SRA.metadata("ERP116106", outdir)
+}
+\references{
+doi: 10.1093/nar/gkq1019
 }
