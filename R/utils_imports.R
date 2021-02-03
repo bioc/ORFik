@@ -65,6 +65,11 @@ fread.bed <- function(filePath, chrStyle = NULL) {
 #' }
 #' @inheritParams matchSeqStyle
 #' @inheritParams GenomicAlignments::readGAlignments
+#' @param strandMode numeric, default 0. Only used for paired end bam files.
+#' One of (0: strand = *, 1: first read of pair is +, 2: first read of pair is -).
+#' See ?strandMode. Note: Sets default to 0 instead of 1, as readGAlignmentPairs uses 1.
+#' This is to guarantee hits, but will also make mismatches of overlapping
+#' transcripts in opposite directions.
 #' @return a \code{\link{GAlignments}} or \code{\link{GAlignmentPairs}} object of bam file
 #' @importFrom Rsamtools scanBam BamFile ScanBamParam
 #' @export
@@ -72,17 +77,19 @@ fread.bed <- function(filePath, chrStyle = NULL) {
 #' @examples
 #' bam_file <- system.file("extdata", "ribo-seq.bam", package = "ORFik")
 #' readBam(bam_file, "UCSC")
-readBam <- function(path, chrStyle = NULL, param = NULL) {
+readBam <- function(path, chrStyle = NULL, param = NULL, strandMode = 0) {
   if (!(length(path) %in% c(1,2))) stop("readBam must have 1 or 2 bam files!")
   if (is(path, "factor")) path <- as.character(path)
   # If data.table path
   if (is(path, "data.table")) {
     if (path$reverse == "paired-end") {
       message("ORFik reads this paired end bam as readGAlignmentPairs")
-      bam <- matchSeqStyle(readGAlignmentPairs(path$forward, param = param), chrStyle)
+      message(paste("strandMode =", strandMode, ". Update it if is wrong!"))
+      bam <- matchSeqStyle(readGAlignmentPairs(path$forward, param = param,
+                                               strandMode = strandMode), chrStyle)
       if (length(bam) == 0)
         stop(paste("File", path$forward,
-                   "was read as one paired-end file, but had 0 paired reads!"))
+                   "was read as paired-end file, but had 0 paired reads!"))
       return(bam)
     } else {
       message("ORFik reads these split paired end bams as readGAlignments combination")
@@ -94,7 +101,9 @@ readBam <- function(path, chrStyle = NULL, param = NULL) {
   if (is(path, "character") & length(path) == 2) {
     if (path[2] == "paired-end"){
       message("ORFik reads paired end bam in as readGAlignmentPairs")
-      bam <- matchSeqStyle(readGAlignmentPairs(path[1], param = param), chrStyle)
+      message(paste("strandMode =", strandMode, ". Update it if is wrong!"))
+      bam <- matchSeqStyle(readGAlignmentPairs(path[1], param = param,
+                                               strandMode = strandMode), chrStyle)
       if (length(bam) == 0)
         stop(paste("File", path[1],
                    "was read as paired-end file, but had 0 paired reads!"))
@@ -238,6 +247,7 @@ import.bedoc <- function(path) {
 #' Positions are 1-based, not 0-based as .bed.
 #' Import with import.ofst
 #' @param file a path to a .ofst file
+#' @inheritParams readBam
 #' @return a GAlignment, GAlignmentPairs or GRanges object,
 #' dependent of if cigar/cigar1 is defined in .ofst file.
 #' @importFrom fst read_fst
@@ -245,20 +255,21 @@ import.bedoc <- function(path) {
 #' @examples
 #' ## GRanges
 #' gr <- GRanges("1:1-3:-")
-#' # export.ofst(gr, file = "path.ofst")
-#' # import.ofst("path.ofst")
+#' tmp <- file.path(tempdir(), "path.ofst")
+#' # export.ofst(gr, file = tmp)
+#' # import.ofst(tmp)
 #' ## GAlignment
 #' # Make input data.frame
 #' df <- data.frame(seqnames = "1", cigar = "3M", start = 1L, strand = "+")
 #' ga <- ORFik:::getGAlignments(df)
-#' # export.ofst(ga, file = "path.ofst")
-#' # import.ofst("path.ofst")
-import.ofst <- function(file) {
+#' # export.ofst(ga, file = tmp)
+#' # import.ofst(tmp)
+import.ofst <- function(file, strandMode = 0) {
   df <- read_fst(file)
   if ("cigar" %in% colnames(df)) {
     getGAlignments(df)
   } else if ("cigar1" %in% colnames(df)) {
-    getGAlignmentsPairs(df)
+    getGAlignmentsPairs(df, strandMode)
   } else getGRanges(df)
 }
 
@@ -277,7 +288,7 @@ import.ofst <- function(file) {
 #'  If it is ranged object it will presume to be
 #'  already loaded, so will return the object as it is,
 #'  updating the seqlevelsStyle if given.
-#' @inheritParams matchSeqStyle
+#' @inheritParams readBam
 #' @importFrom tools file_ext
 #' @importFrom tools file_path_sans_ext
 #' @importFrom rtracklayer import
@@ -290,8 +301,11 @@ import.ofst <- function(file) {
 #' fimport(bam_file)
 #' # Certain chromosome naming
 #' fimport(bam_file, "NCBI")
+#' # Paired end bam strandMode 1:
+#' fimport(bam_file, strandMode = 1)
+#' # (will have no effect in this case, since it is not paired end)
 #'
-fimport <- function(path, chrStyle = NULL) {
+fimport <- function(path, chrStyle = NULL, param = NULL, strandMode = 0) {
   if (is(path, "data.table")) {
     if (ncol(path) == 2 & colnames(path) == c("forward", "reverse")) {
       path <- c(path$forward, path$reverse)
@@ -326,12 +340,12 @@ fimport <- function(path, chrStyle = NULL) {
         if (all(fext %in% c("wig"))) {
           return(readWig(path, chrStyle))
         } else if (all(fext %in% c("bam"))) {
-          return(readBam(path, chrStyle))
+          return(readBam(path, chrStyle, param, strandMode))
         } else stop("only wig and valid bam format allowed for 2 files input!")
       } else if (length(path) == 1) { # Only 1 file path given
         if (fext == "bam") {
           if (pairedEndBam) path <- c(path, "paired-end")
-          return(readBam(path, chrStyle))
+          return(readBam(path, chrStyle, param, strandMode))
         } else if (fext == "bed" |
                    file_ext(file_path_sans_ext(path,
                                                compression = TRUE)) == "bed" |
@@ -343,7 +357,7 @@ fimport <- function(path, chrStyle = NULL) {
         } else if (fext == "bedoc") {
           return(matchSeqStyle(import.bedoc(path), chrStyle))
         } else if (fext == "ofst") {
-          return(matchSeqStyle(import.ofst(path), chrStyle))
+          return(matchSeqStyle(import.ofst(path, strandMode), chrStyle))
         }else return(matchSeqStyle(import(path), chrStyle))
       } else stop("fimport takes either 1 or 2 files!")
     } else stop(paste(path, "does not exist as File/Files!"))

@@ -2,7 +2,7 @@
 % Please edit documentation in R/SRA_helper.R
 \name{download.SRA}
 \alias{download.SRA}
-\title{Download SRR libraries from SRA}
+\title{Download read libraries from SRA}
 \usage{
 download.SRA(
   info,
@@ -23,7 +23,9 @@ If only SRR numbers can not rename, since no additional information is given.}
 
 \item{outdir}{a string, default: cbu server}
 
-\item{rename}{logical, default TRUE. Priority of renaming from
+\item{rename}{logical or character, default TRUE (Auto guess new names). False: Skip
+renaming. A character vector of equal size as files wanted can also be given.
+Priority of renaming from
 the metadata is to check for unique names in the LibraryName column,
 then the sample_title column if no valid names in LibraryName.
 If new names found and still duplicates, will
@@ -38,7 +40,8 @@ from install.sratoolkit()}
 default: paste("--gzip", "--skip-technical", "--split-files")}
 
 \item{subset}{an integer or NULL, default NULL (no subset). If defined as
-a integer will download only the first n reads specified by subset.}
+a integer will download only the first n reads specified by subset. If subset is
+defined, will force to use fastq-dump which is slower than ebi download.}
 
 \item{compress}{logical, default TRUE. Download compressed files ".gz".}
 
@@ -69,3 +72,11 @@ download.SRA(info, outdir, subset = 5)
 \references{
 https://ncbi.github.io/sra-tools/fastq-dump.html
 }
+\seealso{
+Other sra: 
+\code{\link{download.SRA.metadata}()},
+\code{\link{download.ebi}()},
+\code{\link{install.sratoolkit}()},
+\code{\link{rename.SRA.files}()}
+}
+\concept{sra}
