@@ -94,13 +94,13 @@ install.sratoolkit <- function(folder = "~/bin", version = "2.10.9") {
 #' ## Simple single SRR run of YEAST
 #' outdir <- tempdir() # Specify output directory
 #' # Download, get 5 first reads
-#' download.SRA(SRR, outdir, subset = 5)
+#' #download.SRA(SRR, outdir, subset = 5)
 #'
 #' ## Using metadata column to get SRR numbers and to be able to rename samples
 #' outdir <- tempdir() # Specify output directory
 #' info <- download.SRA.metadata("SRP226389", outdir) # By study id
 #' # Download, 5 first reads of each library and rename
-#' download.SRA(info, outdir, subset = 5)
+#' #download.SRA(info, outdir, subset = 5)
 #' }
 download.SRA <- function(info, outdir, rename = TRUE,
                          fastq.dump.path = install.sratoolkit(),
@@ -123,7 +123,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
     stop("Could not find SRR numbers in 'info'")
 
   dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-  fastq.dump <- fastq.dump.path
+
   settings <- paste("--outdir", outdir, settings)
   if (!is.null(subset)) {
     if(!is.numeric(subset)) stop("subset must be numeric if not NULL")
@@ -137,6 +137,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
   if (compress) {
     settings <- paste(settings, "--gzip")
   }
+  fastq.dump <- fastq.dump.path
   message("Starting download of SRA runs:")
   BiocParallel::bplapply(SRR, function(i, fastq.dump, settings) {
     message(i)
@@ -421,16 +422,16 @@ find_url_ebi <- function(SRR, stop.on.error = FALSE) {
   SRR_paths_spec_paired <- file.path(SRR_default, SRR, SRR_fastq_paired)
   # Check what format the files are found in (4 types)
   url.exists <-  sapply(SRR_paths, function(x)
-    biomartr:::exists.ftp.file(x, x))
+    exists.ftp.file.fast(x, x))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_paired, function(x)
-                    biomartr:::exists.ftp.file(x, x)))
+                    exists.ftp.file.fast(x, x)))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_spec, function(x)
-                    biomartr:::exists.ftp.file.new(x, x)))
+                    exists.ftp.file.fast(x, x)))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_spec_paired, function(x)
-                    biomartr:::exists.ftp.file.new(x, x)))
+                    exists.ftp.file.fast(x, x)))
   final.path <- names(url.exists[url.exists])
 
   valid <- TRUE
