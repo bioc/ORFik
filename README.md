@@ -1,5 +1,7 @@
 ORFik: R package for discovery of novel genes.
 ==============================================================================
+![](inst/images/ORFik_map.png)
+
 
 This package is still under development, although this version is stable and can be used.
 

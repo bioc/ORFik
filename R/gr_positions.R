@@ -8,13 +8,21 @@
 #' @param grl a \code{\link{GRangesList}} object
 #' @param newStarts an integer vector of same length as grl, with new start
 #' values (absolute coordinates, not relative)
+#' @inheritParams extendLeaders
 #' @return the same GRangesList with new start sites
 #' @family GRanges
 #'
-assignFirstExonsStartSite <- function(grl, newStarts) {
+assignFirstExonsStartSite <- function(grl, newStarts, is.circular =
+                                        all(isCircular(grl) %in% TRUE)) {
   if (length(grl) != length(newStarts)) stop("length of grl and newStarts ",
                                              "are not equal!")
   posIndices <- strandBool(grl)
+  if (!is.circular) {
+    if (any(newStarts < 1)) {
+      message("Transcript found that would be extended below coordinate position 0, setting to 1.")
+      newStarts <- pmax(newStarts, 1)
+    }
+  }
 
   dt <- as.data.table(grl)
   dt[!duplicated(dt$group),]$start[posIndices] <- newStarts[posIndices]
@@ -41,15 +49,22 @@ assignFirstExonsStartSite <- function(grl, newStarts) {
 #' @param grl a \code{\link{GRangesList}} object
 #' @param newStops an integer vector of same length as grl,
 #'  with new start values (absolute coordinates, not relative)
+#' @inheritParams extendLeaders
 #' @return the same GRangesList with new stop sites
 #' @importFrom data.table .N .I
 #' @family GRanges
 #'
-assignLastExonsStopSite <- function(grl, newStops) {
+assignLastExonsStopSite <- function(grl, newStops, is.circular =
+                                      all(isCircular(grl) %in% TRUE)) {
   if (length(grl) != length(newStops)) stop("length of grl and newStops ",
                                             "are not equal!")
   posIndices <- strandBool(grl)
-
+  if (!is.circular) {
+    if (any(newStops < 1)) {
+      message("Transcript found that would be extended below coordinate position 0, setting to 1.")
+      newStops <- pmax(newStops, 1)
+    }
+  }
   dt <- as.data.table(grl)
   group <- NULL # avoid check warning
   idx = dt[, .I[.N], by = group]
@@ -112,10 +127,12 @@ downstreamOfPerGroup <- function(tx, downstreamOf) {
 #'  usually of Transcripts to be changed
 #' @param downstreamFrom a vector of integers, for each group in tx, where
 #' is the new start point of first valid exon.
+#' @inheritParams extendLeaders
 #' @return a GRangesList of downstream part
 #' @family GRanges
 #'
-downstreamFromPerGroup <- function(tx, downstreamFrom) {
+downstreamFromPerGroup <- function(tx, downstreamFrom, is.circular =
+                                     all(isCircular(tx) %in% TRUE)) {
   # Needs speed update!
   posIndices <- strandBool(tx)
   posEnds <- end(tx[posIndices])
@@ -140,7 +157,7 @@ downstreamFromPerGroup <- function(tx, downstreamFrom) {
     ranges(downTx[boundaryHits]) <- irl
   }
 
-  return(assignFirstExonsStartSite(downTx, downstreamFrom))
+  return(assignFirstExonsStartSite(downTx, downstreamFrom, is.circular))
 }
 
 
@@ -157,10 +174,12 @@ downstreamFromPerGroup <- function(tx, downstreamFrom) {
 #'  is the the base after the new stop point of last valid exon.
 #' @param allowOutside a logical (T), can upstreamOf extend outside
 #'  range of tx, can set boundary as a false hit, so beware.
+#' @inheritParams extendLeaders
 #' @return a GRangesList of upstream part
 #' @family GRanges
 #'
-upstreamOfPerGroup <- function(tx, upstreamOf, allowOutside = TRUE) {
+upstreamOfPerGroup <- function(tx, upstreamOf, allowOutside = TRUE,
+                               is.circular = all(isCircular(tx) %in% TRUE)) {
   posIndices <- strandBool(tx)
   posStarts <- start(tx[posIndices])
   negStarts <- end(tx[!posIndices])
@@ -214,7 +233,8 @@ upstreamOfPerGroup <- function(tx, upstreamOf, allowOutside = TRUE) {
     upstreamOf[!posIndices][negChecks] <- stopSites[!posIndices][negChecks]
   }
 
-  upTx[nonZero] <- assignLastExonsStopSite(upTx[nonZero], upstreamOf)
+  upTx[nonZero] <- assignLastExonsStopSite(upTx[nonZero], upstreamOf,
+                                           is.circular = is.circular)
   return(upTx)
 }
 

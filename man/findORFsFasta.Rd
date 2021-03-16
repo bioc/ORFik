@@ -15,7 +15,8 @@ findORFsFasta(
 }
 \arguments{
 \item{filePath}{(character) Path to the fasta file. Can be both uppercase or
-lowercase.}
+lowercase. Or a already loaded R object of either types:
+"BSgenome" or "DNAStringSet" with named sequences}
 
 \item{startCodon}{(character vector) Possible START codons to search for.
 Check \code{\link{startDefinition}} for helper function.}
@@ -24,7 +25,8 @@ Check \code{\link{startDefinition}} for helper function.}
 Check \code{\link{stopDefinition}} for helper function.}
 
 \item{longestORF}{(logical) Default TRUE. Keep only the longest ORF per
-unique (seqname, strand, stopcodon) combination, you can also use function
+unique stopcodon: (seqname, strand, stopcodon) combination, Note: Not longest
+per transcript! You can also use function
 \code{\link{longestORFs}} after creation of ORFs for same result.}
 
 \item{minimumLength}{(integer) Default is 0. Which is START + STOP = 6 bp.
@@ -43,12 +45,13 @@ relative to the fasta file.
 }
 \description{
 Should be used for procaryote genomes or transcript sequences as fasta.
-Makes no sence for eukaryote whole genomes, since it contains splicing.
+Makes no sence for eukaryote whole genomes, since those contains splicing
+(use findMapORFs for spliced ranges).
 Searches through each fasta header and reports all ORFs found for BOTH
 sense (+) and antisense strand (-) in all frames. Name of the header will
 be used as seqnames of reported ORFs.
 Each fasta header is treated separately, and name of the sequence will
-be used as seqname in returned GRanges object. This supports circluar
+be used as seqname in returned GRanges object. This supports circular
 genomes.
 }
 \details{
@@ -63,8 +66,15 @@ Also make sure your fasta file is valid (no hidden spaces etc),
 \examples{
 # location of the example fasta file
 example_genome <- system.file("extdata", "genome.fasta", package = "ORFik")
-findORFsFasta(example_genome)
-
+orfs <- findORFsFasta(example_genome)
+# To store ORF sequences (you need indexed genome .fai file):
+fa <- FaFile(example_genome)
+names(orfs) <- paste0("ORF_", seq.int(length(orfs)), "_", seqnames(orfs))
+orfs <- groupGRangesBy(orfs) # Make GRangesList, required for output
+orf_seqs <- txSeqsFromFa(orfs, fa)
+# writeXStringSet(DNAStringSet(orf_seqs), "orfs.fasta")
+# To extract sequences from negative coordinates, split the 0 position
+# overlapping orfs into 2 exons in the GRangesList (one for - to 0 and 1 to +)
 }
 \seealso{
 Other findORFs: 

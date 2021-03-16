@@ -4,7 +4,12 @@
 \alias{upstreamOfPerGroup}
 \title{Get rest of objects upstream (exclusive)}
 \usage{
-upstreamOfPerGroup(tx, upstreamOf, allowOutside = TRUE)
+upstreamOfPerGroup(
+  tx,
+  upstreamOf,
+  allowOutside = TRUE,
+  is.circular = all(isCircular(tx) \%in\% TRUE)
+)
 }
 \arguments{
 \item{tx}{a \code{\link{GRangesList}},
@@ -15,6 +20,10 @@ is the the base after the new stop point of last valid exon.}
 
 \item{allowOutside}{a logical (T), can upstreamOf extend outside
 range of tx, can set boundary as a false hit, so beware.}
+
+\item{is.circular}{logical, default FALSE if not any is: all(isCircular(grl) %in% TRUE).
+Where grl is the ranges checked. If TRUE, allow ranges to extend
+below position 1 on chromosome. Since circular genomes can have negative coordinates.}
 }
 \value{
 a GRangesList of upstream part
