@@ -1,18 +1,18 @@
 #' Run differential TE analysis
 #'
 #' Creates a total of 3 DESeq models (given x is design argument input
-#' and libraryType is RNA-seq and Ribo-seq):\cr
+#'  (usually stage or condition) and libraryType is RNA-seq and Ribo-seq):\cr
 #' 1. Ribo-seq model: design = ~ x (differences between the x groups in Ribo-seq)\cr
 #' 2. RNA-seq model: design = ~ x (differences between the x groups in RNA-seq)\cr
-#' 3. TE model: design = ~ library type + x + libraryType + libraryType:x
+#' 3. TE model: design = ~ x + libraryType + libraryType:x
 #' (differences between the x and libraryType groups and the interaction between them)\cr
 #' Using an equal reimplementation of the deltaTE algorithm (see reference).
 #' You need at least 2 groups and 2 replicates per group. The Ribo-seq counts will
 #' be over CDS and RNA-seq over mRNAs, per transcript. \cr
 #'
 #' #' If you do not need isoform variants, subset to longest isoform in
-#' the returned object. If you do not have RNA-seq controls,
-#' run normal DESeq instead.
+#' the returned object (See examples). If you do not have RNA-seq controls,
+#' you can still use DESeq on Ribo-seq alone.
 #' \cr The LFC values are shrunken by lfcShrink(type = "normal").\cr \cr
 #' What the deltaTE plot calls intensified is here called mRNA abundance and
 #' forwarded is called Buffering.\cr Remember that DESeq by default can not
@@ -21,7 +21,8 @@
 #' @param df.rfp a \code{\link{experiment}} of Ribo-seq or 80S from TCP-seq.
 #' @param df.rna a \code{\link{experiment}} of RNA-seq
 #' @param design a character vector, default "stage". The columns in the
-#' experiment that creates the comparison contrasts.
+#' ORFik experiment that represent the comparison contrasts. Usually found
+#' in "stage", "condition" or "fraction" column.
 #' @param output.dir output.dir directory to save plots,
 #' plot will be named "TE_between.png". If NULL, will not save.
 #' @param RFP_counts a SummarizedExperiment, default:
@@ -32,6 +33,11 @@
 #' countTable(df.rna, "mrna", type = "summarized"), all transcripts.
 #' Assign a subset if you don't want to analyze all genes.
 #' It is recommended to not subset, to give DESeq2 data for variance analysis.
+#' @param batch.effect, logical, default FALSE. If you believe you might have batch effects,
+#' set to TRUE, will use replicate column to represent batch effects.
+#' Batch effect usually means that you have a strong variance between
+#' biological replicates. Check PCA plot on count tables to verify if
+#' you need to set it to TRUE.
 #' @references doi: 10.1002/cpmb.108
 #' @return a data.table with 9 columns.
 #' (log fold changes, p.ajust values, group, regulation status and gene id)
@@ -40,9 +46,14 @@
 #' @import DESeq2
 #' @importFrom data.table rbindlist
 #' @examples
+#' ## Simple example
 #' #df.rfp <- read.experiment("Riboseq")
 #' #df.rna <- read.experiment("RNAseq")
 #' #dt <- DTEG.analysis(df.rfp, df.rna)
+#' ## Restrict DTEGs by log fold change (LFC):
+#' ## subset to abs(LFC) < 1.5 for both rfp and rna
+#' #dt[abs(rfp) < 1.5 & abs(rna) < 1.5, Regulation := "No change"]
+#'
 #' ## Only longest isoform per gene:
 #' #tx_longest <- filterTranscripts(df.rfp, 0, 1, 0)
 #' #dt <- dt[id %in% tx_longest,]
@@ -55,8 +66,10 @@ DTEG.analysis <- function(df.rfp, df.rna,
                           design = "stage", p.value = 0.05,
                           RFP_counts = countTable(df.rfp, "cds", type = "summarized"),
                           RNA_counts = countTable(df.rna, "mrna", type = "summarized"),
+                          batch.effect = FALSE,
                           plot.title = "", width = 6,
-                          height = 6, dot.size = 0.4) {
+                          height = 6, dot.size = 0.4,
+                          relative.name = "DTEG_plot.png") {
   if (!is(df.rfp, "experiment") | !is(df.rna, "experiment"))
     stop("df.rfp and df.rna must be ORFik experiments!")
   if (length(unique(unlist(df.rfp[, design]))) == 1)
@@ -70,8 +83,9 @@ DTEG.analysis <- function(df.rfp, df.rna,
   if (nrow(RFP_counts) != nrow(RNA_counts)) stop("counts must have equall number of rows!")
 
   # Designs
-  te.design <- as.formula(paste0("~ libtype + ", design, "+ libtype:", design))
-  main.design <- as.formula(paste0("~ ", design))
+  be <- ifelse(batch.effect, "replicate + ", "")
+  te.design <- as.formula(paste0("~ libtype + ", be, design, "+ libtype:", design))
+  main.design <- as.formula(paste0("~ ", be, design))
   # TE
   se <- cbind(assay(RFP_counts), assay(RNA_counts))
   colData <- rbind(colData(RFP_counts), colData(RNA_counts))
@@ -118,7 +132,7 @@ DTEG.analysis <- function(df.rfp, df.rna,
     suppressMessages(res_rna <- lfcShrink(ddsMat_rna, contrast = current.contrast,
                                           res = res_rna, type = "normal"))
 
-    # The differential regulation groupings
+    # The differential regulation groupings (padj is padjusted)
     both <- which(res_te$padj < p.value & res_ribo$padj < p.value & res_rna$padj < p.value)
     ## The 4 classes of genes
     forwarded <- rownames(res_te)[which(res_te$padj > p.value & res_ribo$padj < p.value & res_rna$padj < p.value)]
@@ -160,7 +174,8 @@ DTEG.analysis <- function(df.rfp, df.rna,
                factor(Regulation,
                       levels = c("No change", "Translation", "Buffering", "mRNA abundance"),
                       ordered = TRUE)]
-  plot <- DTEG.plot(dt.between, output.dir, p.value, plot.title, width, height, dot.size)
+  plot <- DTEG.plot(dt.between, output.dir, p.value, plot.title, width, height,
+                    dot.size, relative.name = relative.name)
   return(dt.between)
 }
 

@@ -12,10 +12,12 @@ DTEG.analysis(
   p.value = 0.05,
   RFP_counts = countTable(df.rfp, "cds", type = "summarized"),
   RNA_counts = countTable(df.rna, "mrna", type = "summarized"),
+  batch.effect = FALSE,
   plot.title = "",
   width = 6,
   height = 6,
-  dot.size = 0.4
+  dot.size = 0.4,
+  relative.name = "DTEG_plot.png"
 )
 }
 \arguments{
@@ -27,7 +29,8 @@ DTEG.analysis(
 plot will be named "TE_between.png". If NULL, will not save.}
 
 \item{design}{a character vector, default "stage". The columns in the
-experiment that creates the comparison contrasts.}
+ORFik experiment that represent the comparison contrasts. Usually found
+in "stage", "condition" or "fraction" column.}
 
 \item{p.value}{a numeric, default 0.05 in interval (0,1)
 or "" to not show.
@@ -43,6 +46,12 @@ countTable(df.rna, "mrna", type = "summarized"), all transcripts.
 Assign a subset if you don't want to analyze all genes.
 It is recommended to not subset, to give DESeq2 data for variance analysis.}
 
+\item{batch.effect, }{logical, default FALSE. If you believe you might have batch effects,
+set to TRUE, will use replicate column to represent batch effects.
+Batch effect usually means that you have a strong variance between
+biological replicates. Check PCA plot on count tables to verify if
+you need to set it to TRUE.}
+
 \item{plot.title}{title for plots, usually name of experiment etc}
 
 \item{width}{numeric, default 6 (in inches)}
@@ -50,6 +59,10 @@ It is recommended to not subset, to give DESeq2 data for variance analysis.}
 \item{height}{numeric, default 6 (in inches)}
 
 \item{dot.size}{numeric, default 0.4, size of point dots in plot.}
+
+\item{relative.name}{character, Default: "DTEG_plot.png".
+Relative name of file to be saved in folder specified in output.dir.
+Change to .pdf if you want pdf file instead of png.}
 }
 \value{
 a data.table with 9 columns.
@@ -57,10 +70,10 @@ a data.table with 9 columns.
 }
 \description{
 Creates a total of 3 DESeq models (given x is design argument input
-and libraryType is RNA-seq and Ribo-seq):\cr
+ (usually stage or condition) and libraryType is RNA-seq and Ribo-seq):\cr
 1. Ribo-seq model: design = ~ x (differences between the x groups in Ribo-seq)\cr
 2. RNA-seq model: design = ~ x (differences between the x groups in RNA-seq)\cr
-3. TE model: design = ~ library type + x + libraryType + libraryType:x
+3. TE model: design = ~ x + libraryType + libraryType:x
 (differences between the x and libraryType groups and the interaction between them)\cr
 Using an equal reimplementation of the deltaTE algorithm (see reference).
 You need at least 2 groups and 2 replicates per group. The Ribo-seq counts will
@@ -68,17 +81,22 @@ be over CDS and RNA-seq over mRNAs, per transcript. \cr
 }
 \details{
 #' If you do not need isoform variants, subset to longest isoform in
-the returned object. If you do not have RNA-seq controls,
-run normal DESeq instead.
+the returned object (See examples). If you do not have RNA-seq controls,
+you can still use DESeq on Ribo-seq alone.
 \cr The LFC values are shrunken by lfcShrink(type = "normal").\cr \cr
 What the deltaTE plot calls intensified is here called mRNA abundance and
 forwarded is called Buffering.\cr Remember that DESeq by default can not
 do global change analysis, it can only find subsets with change in LFC.
 }
 \examples{
+## Simple example
 #df.rfp <- read.experiment("Riboseq")
 #df.rna <- read.experiment("RNAseq")
 #dt <- DTEG.analysis(df.rfp, df.rna)
+## Restrict DTEGs by log fold change (LFC):
+## subset to abs(LFC) < 1.5 for both rfp and rna
+#dt[abs(rfp) < 1.5 & abs(rna) < 1.5, Regulation := "No change"]
+
 ## Only longest isoform per gene:
 #tx_longest <- filterTranscripts(df.rfp, 0, 1, 0)
 #dt <- dt[id \%in\% tx_longest,]
