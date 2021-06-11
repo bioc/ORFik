@@ -5,21 +5,37 @@
 #' normalized counts over all CDS regions from position 0 (TIS) to 149
 #' (or other max position if increased by the user.\cr
 #' Checks if there is a periodicity and if the periodicity is 3,
-#' more precisely between 2.9 and 3.1.
+#' more precisely between 2.9 and 3.1.\cr
 #'
+#' Input data:\cr
 #' Transcript normalized means per CDS TIS region, count reads per position,
 #' divide that number per position by the total of that transcript, then sum
-#' up these numbers per position for all transcripts.
+#' up these numbers per position for all transcripts.\cr
+#' Detection method:\cr
+#' The maximum dominant Fourier frequencies is found by finding which
+#' period has the highest spectrum density (using a 10% cosine taper).
 #' @param x (numeric) Vector of values to detect periodicity of 3 like in
 #' RiboSeq data.
+#' @param info specify read length if wanted for verbose output.
+#' @param verbose logical, default FALSE. Report details of periodogram.
 #' @return a logical, if it is periodic.
 #' @importFrom stats fft spec.pgram
 #'
-isPeriodic <- function(x) {
+isPeriodic <- function(x, info = NULL, verbose = FALSE) {
   if (sum(x) == 0) return(FALSE)
   amplitudes <- abs(fft(x))
   amp <- amplitudes[2 : (length(amplitudes) / 2 + 1)]
-  periods <- 1 / spec.pgram(x = x, plot = FALSE)$freq
+  specter <- spec.pgram(x = x, plot = FALSE)
+  periods <- 1 / specter$freq
+  if (verbose) {
+
+    dt <- data.table(periods,
+                     amp, spec = specter$spec)[order(spec, decreasing = TRUE)][1:10,]
+    message("Top 10 periods from spectrogram, look for period > 2.9 & < 3.1:")
+    if (!is.null(info)) message("Info / Read length: ", info)
+
+    print(dt)
+  }
   return((periods[which.max(amp)] > 2.9) & (periods[which.max(amp)] < 3.1))
 }
 
@@ -29,8 +45,10 @@ isPeriodic <- function(x) {
 #' and check which window has most in upstream window vs downstream window.
 #' Pick the position with highest absolute value maximum of the window difference.
 #' Checks windows with split sites between positions -17 to -7, where 0 is TIS.
-#' Normally you expect the shift around -12.
+#' Normally you expect the shift around -12 for Ribo-seq, in TCP-seq / RCP-seq
+#' it is usually a bit higher, usually because of cross-linking variations.
 #'
+#' For visual explanation, see the supl. data of ORFik paper:
 #' Transcript normalized means per CDS TIS region, count reads per position,
 #' divide that number per position by the total of that transcript, then sum
 #' up these numbers per position for all transcripts.
@@ -43,17 +61,23 @@ isPeriodic <- function(x) {
 #' @param interval integer vector , default seq.int(14L, 24L).
 #'  Seperation points for upstream and downstream windows.
 #'  That is (+/- 5 from -12) position.
+#' @param center.pos integer, default 12. Centering position for likely p-site.
+#' A first qualified guess to save time. 12 means 12 bases before TIS.
+#' @param info specify read length if wanted for verbose output.
+#' @param verbose logical, default FALSE. Report details of change point analysis.
 #' @return a single numeric offset, -12 would mean p-site is 12 bases upstream
 #' @family pshifting
 #'
 changePointAnalysis <- function(x, feature = "start", max.pos = 40L,
-                                interval = seq.int(14L, 24L)) {
+                                interval = seq.int(14L, 24L),
+                                center.pos = 12, info = NULL, verbose = FALSE) {
   if (max.pos > length(x)) stop("Can not subset max.pos > length of x")
   if (!all(interval %in% seq.int(x)))
     stop("interval vector must be subset of x indices!")
   meta <- x[seq.int(max.pos)] # First 40 or other specified
   pos <- -(length(x)/2):(length(x)/2 - 1) # The positions
-  frames <- rep(c(0,1,2), 20)[seq.int(max.pos)]
+  frames <- rep(c(0,1,2), 20)[seq.int(max.pos)] # Frame vector
+  # Find best frame
   max.frame = which.max(c(sum(meta[frames == 0]), sum(meta[frames == 1]),
                         sum(meta[frames == 2]))) - 1
   # subset to best frame
@@ -72,10 +96,19 @@ changePointAnalysis <- function(x, feature = "start", max.pos = 40L,
       downs <- c(downs, downstream); ups <- c(ups, upstream)
       means <- c(means, m)
     }
-    # New scaler, punishes regions far away from -12.
-    scaled_means <- means / (abs(pos[interval] + 12) + 1)
-    # Debug
-    # data.table(ups, downs, means, scaled_means, pos = pos[interval])
+    # Find center position of frame:
+    center.pos <- c(center.pos, center.pos -1, center.pos+2)[max.frame + 1]
+    # New scaler, punishes rare extreme regions far away from center position.
+    scaled_means <- means / (abs(pos[interval] + center.pos) + 1)^0.25
+
+    # Debug information:
+    if (verbose) {
+      dt <- data.table(ups, downs, means, scaled_means, pos = pos[interval])
+      message("Info / Read length: ", info)
+      message("Possible change points of the max frame with sliding windows:")
+      print(dt)
+    }
+    #
     offset <- pos[interval[which.max(abs(scaled_means))]]
   } else if (feature == "stop") {
     shift <- which.max(meta)

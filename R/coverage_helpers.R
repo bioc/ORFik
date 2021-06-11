@@ -111,7 +111,9 @@ splitIn3Tx <- function(leaders, cds, trailers, reads, windowSize = 100,
 #' @inheritParams coveragePerTiling
 #' @return A data.table with scored counts (score) of
 #' reads mapped to positions (position) specified in windows along with
-#' frame (frame).
+#' frame (frame) per gene (genes) per library (fraction) per transcript region
+#' (feature). Column that does not apply is not given, by position and (score/count)
+#' is always returned.
 #' @family coverage
 #' @export
 #' @importFrom BiocGenerics Reduce
@@ -151,6 +153,12 @@ metaWindow <- function(x, windows, scoring = "sum", withFrames = FALSE,
     zeroPosition <- ifelse(is.null(zeroPosition), (window_size)/2,
                            zeroPosition)
     hitMap[, position := position - (zeroPosition + 1) ]
+  }
+  # Special if for debug periodicity
+  if (!is.null(scoring)) {
+    if ((scoring == "periodicv") & !is.null(fraction)) {
+      hitMap[, fraction := rep(fraction, nrow(hitMap))]
+    }
   }
 
   hitMap <- coverageScorings(hitMap, scoring)
@@ -320,7 +328,7 @@ coverageScorings <- function(coverage, scoring = "zscore",
       stop("Can not use frameSum scoring when no frames are given!")
     groupFPF <- quote(list(fraction, genes, frame))
     scoring <- "sum"
-  } else if (scoring == "periodic") {
+  } else if (scoring %in% c("periodic", "periodicv")) {
     groupFPF <- ifelse(!is.null(cov$fraction),
                                 (quote(fraction)), quote(""))
   }
@@ -363,9 +371,17 @@ coverageScorings <- function(coverage, scoring = "zscore",
     res <- cov[, .(score = sum(count, na.rm = TRUE)),
                         by = eval(groupFPF)]
     res[, `:=`  (score = score / uniques)]
-  }  else if (scoring == "periodic") {
+  } else if (scoring %in% c("periodic", "periodicv")) {
     cov <- coverageScorings(cov, "transcriptNormalized")
-    res <- cov[, .(score = isPeriodic(score)), by = eval(groupFPF)]
+    verbose <- scoring == "periodicv"
+    if (!is.null(cov$fraction)) {
+      res <- cov[, .(score = isPeriodic(score, unique(fraction), verbose = verbose)),
+                 by = eval(groupFPF)]
+    } else {
+      res <- cov[, .(score = isPeriodic(score, verbose = verbose)),
+                 by = eval(groupFPF)]
+    }
+
   } else stop(paste("Invalid scoring: ", scoring))
   res[] # for print
   return(res)
