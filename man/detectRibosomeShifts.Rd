@@ -13,12 +13,14 @@ detectRibosomeShifts(
   minFiveUTR = 30L,
   minCDS = 150L,
   minThreeUTR = 30L,
+  txNames = filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR),
   firstN = 150L,
   tx = NULL,
   min_reads = 1000,
   accepted.lengths = 26:34,
   heatmap = FALSE,
   must.be.periodic = TRUE,
+  strict.fft = TRUE,
   verbose = FALSE
 )
 }
@@ -41,7 +43,7 @@ codons. Default FASLE. Only use if there exists 3' UTRs for the annotation.
 If peridicity around stop codon is stronger than at the start codon, use
 stop instead of start region for p-shifting.}
 
-\item{top_tx}{(integer), default 10. Specify which % of the top covered by RiboSeq
+\item{top_tx}{(integer), default 10. Specify which \% of the top covered by RiboSeq
 reads transcripts to use for estimation of the shifts. By default we take top 10%
 top covered transcripts as they represent less noisy dataset. This is only
 applicable when there are more than 1000 transcripts.}
@@ -54,6 +56,13 @@ transcripts}
 
 \item{minThreeUTR}{(integer) minimum bp for 3' UTR during filtering for the
 transcripts. Set to NULL if no 3' UTRs exists for annotation.}
+
+\item{txNames}{a character vector of subset of CDS to use. Default:
+txNames = filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR)\cr
+Example:
+c("ENST1000005"), will use only that transcript (You should use at least 100!).
+Remember that top_tx argument, will by default specify to use top 10 \%
+of those CDSs. Set that to 100, to use all these specified transcripts.}
 
 \item{firstN}{(integer) Represents how many bases of the transcripts
 downstream of start codons to use for initial estimation of the
@@ -81,9 +90,17 @@ This is useful if you are not going to do periodicity analysis, that is:
 for you more coverage depth (more read lengths)
 is more important than only keeping the high quality periodic read lengths.}
 
-\item{verbose}{logical FALSE, if TRUE report details of
-read length filtering (periodogram) and
-change point analysis per read length.}
+\item{strict.fft}{logical, TRUE. Use a FFT without noise filter.
+This means keep only reads lengths that are "periodic for the human eye".
+If you want more coverage, set to FALSE, to also get read lengths
+that are "messy", but the noise filter detects the periodicity of 3.
+This should only be done when you do not need high quality
+periodic reads! Example would be differential translation analysis by
+counts over each ORF.}
+
+\item{verbose}{logical, default FALSE.
+Report details of analysis/periodogram. Good if you are not sure
+if the analysis was correct.}
 }
 \value{
 a data.table with lengths of footprints and their predicted

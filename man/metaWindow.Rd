@@ -15,7 +15,9 @@ metaWindow(
   feature = NULL,
   forceUniqueEven = !is.null(scoring),
   forceRescale = TRUE,
-  weight = "score"
+  weight = "score",
+  drop.zero.dt = FALSE,
+  append.zeroes = FALSE
 )
 }
 \arguments{
@@ -35,7 +37,8 @@ relative to zeroPosition. zeroPosition is frame 0.}
 \item{zeroPosition}{an integer DEFAULT (NULL), the point if all windows
 are equal size, that should be set to position 0. Like leaders and
 cds combination, then 0 is the TIS and -1 is last base in leader. NOTE!:
-if windows have different widths, this will be ignored.}
+if not all windows have equal width, this will be ignored. If all have
+equal width and zeroPosition is NULL, it is set to as.integer(width / 2).}
 
 \item{scaleTo}{an integer (100), if windows have different size,
 a meta window can not directly be created, since a meta window must
@@ -59,9 +62,20 @@ coverage.}
 \item{weight}{(default: 'score'), if defined a character name
 of valid meta column in subject. GRanges("chr1", 1, "+", score = 5),
 would mean score column tells that this alignment region was found 5 times.
-ORFik .bedo files, contains a score column like this.
+ORFik ofst, bedoc and .bedo files contains a score column like this.
 As do CAGEr CAGE files and many other package formats.
 You can also assign a score column manually.}
+
+\item{drop.zero.dt}{logical FALSE, if TRUE and as.data.table is TRUE,
+remove all 0 count positions.
+This greatly speeds up and most importantly, greatly reduces memory usage.
+Will not change any plots, unless 0 positions are used in some sense.
+(mean, median, zscore coverage will only scale differently)}
+
+\item{append.zeroes}{logical, default FALSE. If TRUE and drop.zero.dt
+is TRUE and all windows have equal length, it will add back 0 values after transformation.
+Sometimes needed for correct plots, if TRUE, will call abort if not all
+windows are equal length!}
 }
 \value{
 A data.table with scored counts (score) of

@@ -11,7 +11,7 @@
 #' @param arguments a named character vector containing paths wanted to
 #' use for index creation. They must be named correctly:
 #' names must be a subset of:
-#' c("gtf", "genome", "phix", "rRNA", "tRNA","ncRNA")
+#' c("gtf", "genome", "contaminants", "phix", "rRNA", "tRNA","ncRNA")
 #' @param output.dir directory to save indices, default:
 #' paste0(dirname(arguments[1]), "/STAR_index/"), where arguments is the
 #' arguments input for this function.
@@ -30,6 +30,11 @@
 #' suffux array sparsity, i.e.  distance between indices:
 #' use bigger numbers to decrease needed RAM at the cost of mapping
 #' speed reduction. Only applies to genome, not conaminants.
+#' @param tmpDirStar character, default "-". STAR automatic temp folder creation,
+#' deleted when done. The directory can no exists, as a safety STAR must make it!.
+#' If you are on a NFS file share drive, and you have a non NFS tmp dir,
+#' set this to \code{tempfile()} or the manually specified folder to get a
+#' considerable speedup!
 #' @param script location of STAR index script,
 #' default internal ORFik file. You can change it and give your own if you
 #' need special alignments.
@@ -50,14 +55,14 @@
 #' # STAR.index(arguments, output.dir)
 STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/STAR_index/"),
                        star.path = STAR.install(), max.cpus = min(90, detectCores() - 1),
-                       max.ram = 30, SAsparse = 1,
+                       max.ram = 30, SAsparse = 1, tmpDirStar = "-",
                        wait = TRUE, remake = FALSE,
                        script = system.file("STAR_Aligner",
                                             "STAR_MAKE_INDEX.sh",
                                             package = "ORFik")) {
   finished.file <- paste0(output.dir, "/outputs.rds")
   if (file.exists(finished.file) & !remake) {
-    message("Loading premade files information,
+    message("Loading premade index files,
             do remake = TRUE if you want to run again")
     return(readRDS(finished.file))
   }
@@ -80,13 +85,14 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
   max.cpus <- paste("-m", max.cpus)
   max.ram <- paste("-R", format(max.ram*1e9, scientific = FALSE))
   SAsparse <- paste("-a", SAsparse)
+  tmpDirStar <- paste("-T", tmpDirStar)
   # TODO: ADD check for file size vs available RAM.
   # file.size(annotation["genome"]) / 1e9
   # system("cat /proc/meminfo")
   #memory_GB <- as.integer(gsub(" |MemTotal:|kB", replacement = "", a[1])) / 1e6
 
   full <- paste(script, out, star.path, max.cpus, max.ram, SAsparse,
-                paste(hits, collapse = " "))
+                tmpDirStar, paste(hits, collapse = " "))
   message("STAR indexing:\n")
   print(full); print("\n")
   if (.Platform$OS.type == "unix") {
@@ -111,12 +117,14 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
 #' index was aborted early, then you need to run:
 #' STAR.remove.crashed.genome(), with the genome that crashed, and rerun.
 #'
-#' Can only run on unix systems (Linux and Mac), and requires
-#' minimum 30GB memory on genomes like human, rat, zebrafish etc.\cr
+#' Can only run on unix systems (Linux, Mac and WSL (Windows Subsystem Linux)),
+#' and requires a minimum of 30GB memory on genomes like human, rat, zebrafish etc.\cr
 #' If for some reason the internal STAR alignment bash script will not work for you,
-#' like if you have a very small genome. You can copy the internal alignment script,
+#' like if you want more customization of the STAR/fastp arguments.
+#' You can copy the internal alignment script,
 #' edit it and give that as the Index script used for this function.\cr
-#' The trimmer used is fastp (the fastest I could find), works on mac and linux.
+#' The trimmer used is fastp (the fastest I could find), also works on
+#' (Linux, Mac and WSL (Windows Subsystem Linux)).
 #' If you want to use your own trimmer set file1/file2 to the location of
 #' the trimmed files from your program.\cr
 #' A note on trimming from creator of STAR about trimming:
@@ -166,9 +174,11 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
 #'  (usually just download a Silva rRNA database
 #'  for SSU&LSU at: https://www.arb-silva.de/) for your species.
 #' @param adapter.sequence character, default: "auto". Auto detect adapter using fastp
-#' adapter auto detection, checking first 1.5M reads. (auto detect adapter, is not
-#' very reliable for Ribo-seq, so then you must include a manually specified,
-#' else alignment will most likely fail!). If already trimmed or trimming not wanted:
+#' adapter auto detection, checking first 1.5M reads. (Auto detection of adapter will
+#' not work 100% of the time (if the library is of low quality), then you must rerun
+#' this function with specified adapter from fastp adapter analysis
+#' , using FASTQC or other adapter detection tools, else alignment will most likely fail!).
+#' If already trimmed or trimming not wanted:
 #' adapter.sequence = "disable" .You can manually assign adapter like:
 #' "ATCTCGTATGCCGTCTTCTGCTTG" or "AAAAAAAAAAAAA". You can also specify one of the three
 #' presets:\cr
@@ -177,12 +187,21 @@ STAR.index <- function(arguments, output.dir = paste0(dirname(arguments[1]), "/S
 #'  \item{small_RNA (standard for ~50 bp sequencing): }{TGGAATTCTCGG}
 #'  \item{nextera: }{CTGTCTCTTATA}
 #' }
+#' @param quality.filtering logical, default FALSE. Not needed for modern
+#' library prep of RNA-seq, Ribo-seq etc (usually < ~ 0.5% of reads are removed).
+#' If you are aligning bad quality data, set this to TRUE.\cr
+#' These filters will then be applied (default of fastp), filter if:
+#' \itemize{
+#'  \item{Number of N bases in read: }{> 5}
+#'  \item{Read quality: }{> 40\% of bases in the read are <Q15}
+#' }
 #' @param min.length 20, minimum length of aligned read without mismatches
-#' to pass filter.
+#' to pass filter. Anything under 20 is dangerous, as chance of random hits will
+#' become high!
 #' @param mismatches 3, max non matched bases. Excludes soft-clipping, this only
 #' filters reads that have defined mismatches in STAR.
 #' Only applies for genome alignment step.
-#' @param trim.front 0, default trim 0 bases 5'. For Ribo-seq set use 0.
+#' @param trim.front 0, default trim 0 bases 5'. For Ribo-seq use default 0.
 #' Ignored if tr (trim) is not one of the arguments in "steps"
 #' @param alignment.type default: "Local": standard local alignment with soft-clipping allowed,
 #' "EndToEnd" (global): force end-to-end read alignment, does not soft-clip.
@@ -239,7 +258,7 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
                               star.path = STAR.install(), fastp = install.fastp(),
                               paired.end = FALSE,
                               steps = "tr-ge", adapter.sequence = "auto",
-                              min.length = 20, mismatches = 3,
+                              quality.filtering = FALSE, min.length = 20, mismatches = 3,
                               trim.front = 0, max.multimap = 10,
                               alignment.type = "Local", max.cpus = min(90, detectCores() - 1),
                               wait = TRUE, include.subfolders = "n", resume = NULL,
@@ -267,12 +286,13 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
   resume <- ifelse(is.null(resume), "", paste("-r", resume))
   star.path <- ifelse(is.null(star.path), "", paste("-S", star.path))
   fastp <- ifelse(is.null(fastp), "", paste("-P", fastp))
+  quality.filtering <- ifelse(quality.filtering, "-q default", "")
 
   full <- paste(script.folder, "-f", input.dir, "-o", output.dir,
                 "-p", paired.end,
                 "-l", min.length, "-T", mismatches, "-g", index.dir,
                 "-s", steps, resume, "-a", adapter.sequence,
-                "-t", trim.front, "-M", max.multimap,
+                "-t", trim.front, "-M", max.multimap, quality.filtering,
                 "-A", alignment.type, "-m", max.cpus, "-i", include.subfolders,
                 star.path, fastp, "-I",script.single, "-C", cleaning)
   if (.Platform$OS.type == "unix") {
@@ -294,7 +314,8 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
 #' Align single or paired end pair with STAR
 #'
 #' Given a single NGS fastq/fasta library, or a paired setup of 2 mated
-#' libraries. Run alignment and optionally remove contaminants.
+#' libraries. Run either combination of fastq trimming, contamination removal and
+#' genome alignment. Works for (Linux, Mac and WSL (Windows Subsystem Linux))
 #' @inherit STAR.align.folder
 #' @inheritParams STAR.align.folder
 #' @param file1 library file, if paired must be R1 file. Allowed formats are:
@@ -318,7 +339,8 @@ STAR.align.folder <- function(input.dir, output.dir, index.dir,
 STAR.align.single <- function(file1, file2 = NULL, output.dir, index.dir,
                               star.path = STAR.install(), fastp = install.fastp(),
                               steps = "tr-ge", adapter.sequence = "auto",
-                              min.length = 20, mismatches = 3, trim.front = 0,
+                              quality.filtering = FALSE, min.length = 20,
+                              mismatches = 3, trim.front = 0,
                               max.multimap = 10, alignment.type = "Local",
                               max.cpus = min(90, detectCores() - 1),
                               wait = TRUE, resume = NULL,
@@ -338,13 +360,13 @@ STAR.align.single <- function(file1, file2 = NULL, output.dir, index.dir,
   resume <- ifelse(is.null(resume), "", paste("-r", resume))
   star.path <- ifelse(is.null(star.path), "", paste("-S", star.path))
   fastp <- ifelse(is.null(fastp), "", paste("-P", fastp))
-
+  quality.filtering <- ifelse(quality.filtering, "-q default", "")
   full <- paste(script.single, "-f", file1, file2, "-o", output.dir,
                 "-l", min.length, "-T", mismatches, "-g", index.dir,
                 "-s", steps, resume, "-a", adapter.sequence,
                 "-t", trim.front, "-A", alignment.type, "-m", max.cpus,
-                "-M", max.multimap,
-                star.path, fastp) # "-C", cleaning
+                "-M", max.multimap, quality.filtering, star.path, fastp)
+  # "-C", cleaning
   if (.Platform$OS.type == "unix") {
     print(full)
     message("Starting alignment at time:")
@@ -413,7 +435,7 @@ STAR.install <- function(folder = "~/bin", version = "2.7.4a") {
 #'
 #' On Linux, will not run "make", only use precompiled fastp file.\cr
 #' On Mac OS it will use precompiled binaries.\cr
-#' Does not work yet for Windows!
+#' For windows must be installed through WSL (Windows Subsystem Linux)
 #' @param folder path to folder for download, file will be named
 #' "fastp", this should be most recent version. On mac it will search
 #' for a folder called fastp-master inside folder given. Since there

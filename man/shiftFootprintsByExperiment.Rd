@@ -18,9 +18,11 @@ shiftFootprintsByExperiment(
   accepted.lengths = 26:34,
   output_format = c("ofst", "wig"),
   BPPARAM = bpparam(),
+  tx = NULL,
   log = TRUE,
   heatmap = FALSE,
   must.be.periodic = TRUE,
+  strict.fft = TRUE,
   verbose = FALSE
 )
 }
@@ -39,7 +41,7 @@ codons. Default FASLE. Only use if there exists 3' UTRs for the annotation.
 If peridicity around stop codon is stronger than at the start codon, use
 stop instead of start region for p-shifting.}
 
-\item{top_tx}{(integer), default 10. Specify which % of the top covered by RiboSeq
+\item{top_tx}{(integer), default 10. Specify which \% of the top covered by RiboSeq
 reads transcripts to use for estimation of the shifts. By default we take top 10%
 top covered transcripts as they represent less noisy dataset. This is only
 applicable when there are more than 1000 transcripts.}
@@ -74,6 +76,11 @@ p-shifting.}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam()}
 
+\item{tx}{a GRangesList, if you do not have 5' UTRs in annotation, send
+your own version. Example: extendLeaders(tx, 30)
+Where 30 bases will be new "leaders". Since each original transcript was
+either only CDS or non-coding (filtered out).}
+
 \item{log}{logical, default (TRUE), output a log file with parameters used and
 a .rds file with all shifts per library
 (can be loaded with \code{\link{shifts.load}})}
@@ -89,21 +96,29 @@ This is useful if you are not going to do periodicity analysis, that is:
 for you more coverage depth (more read lengths)
 is more important than only keeping the high quality periodic read lengths.}
 
-\item{verbose}{logical FALSE, if TRUE report details of
-read length filtering (periodogram) and
-change point analysis per read length.}
+\item{strict.fft}{logical, TRUE. Use a FFT without noise filter.
+This means keep only reads lengths that are "periodic for the human eye".
+If you want more coverage, set to FALSE, to also get read lengths
+that are "messy", but the noise filter detects the periodicity of 3.
+This should only be done when you do not need high quality
+periodic reads! Example would be differential translation analysis by
+counts over each ORF.}
+
+\item{verbose}{logical, default FALSE.
+Report details of analysis/periodogram. Good if you are not sure
+if the analysis was correct.}
 }
 \value{
 NULL (Objects are saved to out.dir/pshited/"name_pshifted.ofst",
 wig, bedo or .bedo)
 }
 \description{
-For more details, see: \code{\link{detectRibosomeShifts}}
-}
-\details{
-#' Saves files to a specified location as .ofst and .wig,
+A function that combines the steps of periodic read length detection,
+p-site shift detection and p-shifting into 1 function.
+For more details, see: \code{\link{detectRibosomeShifts}}\cr
+Saves files to a specified location as .ofst and .wig,
 The .ofst file will include a score column containing read width. \cr
-The .wig fiels, will be saved in pairs of +/- strand, and score column
+The .wig files, will be saved in pairs of +/- strand, and score column
 will be replicates of reads starting at that position,
 score = 5 means 5 reads.\cr
 Remember that different species might have different default Ribosome

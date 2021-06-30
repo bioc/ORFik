@@ -113,11 +113,17 @@ shiftFootprints <- function(footprints, shifts, sort = TRUE) {
 #' codons. Default FASLE. Only use if there exists 3' UTRs for the annotation.
 #' If peridicity around stop codon is stronger than at the start codon, use
 #' stop instead of start region for p-shifting.
-#' @param top_tx (integer), default 10. Specify which % of the top covered by RiboSeq
+#' @param top_tx (integer), default 10. Specify which \% of the top covered by RiboSeq
 #' reads transcripts to use for estimation of the shifts. By default we take top 10%
 #' top covered transcripts as they represent less noisy dataset. This is only
 #' applicable when there are more than 1000 transcripts.
 #' @inheritParams filterTranscripts
+#' @param txNames a character vector of subset of CDS to use. Default:
+#' txNames = filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR)\cr
+#' Example:
+#' c("ENST1000005"), will use only that transcript (You should use at least 100!).
+#' Remember that top_tx argument, will by default specify to use top 10 \%
+#' of those CDSs. Set that to 100, to use all these specified transcripts.
 #' @param firstN (integer) Represents how many bases of the transcripts
 #' downstream of start codons to use for initial estimation of the
 #' periodicity.
@@ -135,9 +141,7 @@ shiftFootprints <- function(footprints, shifts, sort = TRUE) {
 #' This is useful if you are not going to do periodicity analysis, that is:
 #' for you more coverage depth (more read lengths)
 #' is more important than only keeping the high quality periodic read lengths.
-#' @param verbose logical FALSE, if TRUE report details of
-#' read length filtering (periodogram) and
-#' change point analysis per read length.
+#' @inheritParams isPeriodic
 #' @return a data.table with lengths of footprints and their predicted
 #' coresponding offsets
 #' @family pshifting
@@ -184,13 +188,11 @@ shiftFootprints <- function(footprints, shifts, sort = TRUE) {
 #'
 detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
   top_tx = 10L, minFiveUTR = 30L, minCDS = 150L, minThreeUTR = 30L,
+  txNames = filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR),
   firstN = 150L, tx = NULL, min_reads = 1000, accepted.lengths = 26:34,
-  heatmap = FALSE, must.be.periodic = TRUE, verbose = FALSE) {
+  heatmap = FALSE, must.be.periodic = TRUE, strict.fft = TRUE, verbose = FALSE) {
 
   txdb <- loadTxdb(txdb)
-  # Filters for cds and footprints
-  txNames <- filterTranscripts(txdb, minFiveUTR = minFiveUTR, minCDS = minCDS,
-                               minThreeUTR = minThreeUTR)
   cds <- loadRegion(txdb, part = "cds", names.keep = txNames)
   footprints <- fimport(footprints, cds)
 
@@ -202,7 +204,7 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
     stop("txdb and footprints did not have any matched seqnames")
   }
   txNames <- txNames[txNames %in% names(cds)]
-  if (is.null(tx)) tx <- loadRegion(txdb)
+  if (is.null(tx)) tx <- loadRegion(txdb, part = "tx")
   tx <- tx[txNames]
 
   # find periodic read lengths
@@ -216,14 +218,17 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
   if (nrow(tab) == 0) stop("No valid read lengths found with",
                             "accepted.lengths and counts > min_reads")
   cds <- cds[countOverlapsW(cds, footprints, "score") > 0]
+  if (verbose) message("Number of CDSs used for p-site detection: ", length(cds))
   top_tx <- percentage_to_ratio(top_tx, cds)
   if (must.be.periodic) {
-    period.score <- ifelse(verbose, "periodicv", "periodic")
     periodicity <- windowPerReadLength(cds, tx, footprints,
                                        pShifted = FALSE, upstream = 0,
                                        downstream = firstN - 1,
-                                       zeroPosition = 0, scoring = period.score,
-                                       acceptedLengths = tab$size)
+                                       zeroPosition = 0, scoring = "transcriptNormalized",
+                                       acceptedLengths = tab$size,
+                                       drop.zero.dt = TRUE, append.zeroes = TRUE)
+    periodicity <- periodicity[, .(score = isPeriodic(score, unique(fraction), verbose, strict.fft)),
+                               by = fraction]
     validLengths <- periodicity[score == TRUE,]$fraction
   } else validLengths <- accepted.lengths
   if (length(validLengths) == 0)
@@ -249,7 +254,7 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
                  by = fraction]
   }
   if (stop & !is.null(minThreeUTR)) {
-    threeUTRs <- loadRegion(txdb, "trailers")[txNames]
+    threeUTRs <- loadRegion(txdb, "trailers", names.keep = txNames)
     rw <- windowPerReadLength(threeUTRs, tx, footprints, FALSE,
                               upstream = 30, downstream = 29,
                               acceptedLengths = validLengths,
@@ -267,11 +272,12 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
 
 #' Shift footprints of each file in experiment
 #'
-#' For more details, see: \code{\link{detectRibosomeShifts}}
-#'
-#' #' Saves files to a specified location as .ofst and .wig,
+#' A function that combines the steps of periodic read length detection,
+#' p-site shift detection and p-shifting into 1 function.
+#' For more details, see: \code{\link{detectRibosomeShifts}}\cr
+#' Saves files to a specified location as .ofst and .wig,
 #' The .ofst file will include a score column containing read width. \cr
-#' The .wig fiels, will be saved in pairs of +/- strand, and score column
+#' The .wig files, will be saved in pairs of +/- strand, and score column
 #' will be replicates of reads starting at that position,
 #' score = 5 means 5 reads.\cr
 #' Remember that different species might have different default Ribosome
@@ -317,9 +323,9 @@ shiftFootprintsByExperiment <- function(df,
                                         firstN = 150L, min_reads = 1000,
                                         accepted.lengths = 26:34,
                                         output_format = c("ofst", "wig"),
-                                        BPPARAM = bpparam(),
+                                        BPPARAM = bpparam(), tx = NULL,
                                         log = TRUE, heatmap = FALSE,
-                                        must.be.periodic = TRUE,
+                                        must.be.periodic = TRUE, strict.fft = TRUE,
                                         verbose = FALSE) {
   path <- out.dir
   dir.create(path, showWarnings = FALSE, recursive = TRUE)
@@ -331,14 +337,16 @@ shiftFootprintsByExperiment <- function(df,
   message(paste("Shifting reads in experiment:", df@experiment))
 
   txdb <- loadTxdb(df)
+  tx <- loadRegion(txdb, part = "mrna")
+  txNames <- filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR)
   rfpFiles <- filepath(df, "ofst") # If ofst file not present, uses bam file
 
   shifts <- bplapply(rfpFiles,
            FUN = function(file, path, df, start, stop,
                           top_tx, minFiveUTR, minCDS, minThreeUTR,
                           firstN, min_reads, accepted.lengths,
-                          output_format, heatmap = heatmap,
-                          must.be.periodic = must.be.periodic,
+                          output_format, heatmap, tx,
+                          must.be.periodic, txNames, strict.fft,
                           verbose = verbose
                           ) {
     message(file)
@@ -347,11 +355,12 @@ shiftFootprintsByExperiment <- function(df,
                                    stop = stop, top_tx = top_tx,
                                    minFiveUTR = minFiveUTR,
                                    minCDS = minCDS, minThreeUTR = minThreeUTR,
-                                   firstN = firstN, min_reads = min_reads,
+                                   txNames = txNames, firstN = firstN,
+                                   min_reads = min_reads,
                                    accepted.lengths = accepted.lengths,
-                                   heatmap = heatmap,
+                                   heatmap = heatmap, tx = tx,
                                    must.be.periodic = must.be.periodic,
-                                   verbose = verbose)
+                                   strict.fft = strict.fft, verbose = verbose)
     shifted <- shiftFootprints(rfp, shifts)
     name <- paste0(path, remove.file_ext(file, basename = TRUE))
 
@@ -376,12 +385,13 @@ shiftFootprintsByExperiment <- function(df,
 
     return(shifts)
   }, path = path, df = df, start = start, stop = stop,
-      top_tx = top_tx, minFiveUTR = minFiveUTR,
-      minCDS = minCDS, minThreeUTR = minThreeUTR,
-      firstN = firstN, min_reads = min_reads,
-      accepted.lengths = accepted.lengths, output_format = output_format,
-      heatmap = heatmap, must.be.periodic = must.be.periodic,
-      verbose = verbose, BPPARAM = BPPARAM)
+     top_tx = top_tx, minFiveUTR = minFiveUTR,
+     minCDS = minCDS, minThreeUTR = minThreeUTR,
+     firstN = firstN, min_reads = min_reads,
+     accepted.lengths = accepted.lengths, output_format = output_format,
+     heatmap = heatmap, must.be.periodic = must.be.periodic,
+     strict.fft = strict.fft, verbose = verbose, tx = tx, txNames = txNames,
+     BPPARAM = BPPARAM)
 
   if (log) {
     fileConn<-file(paste0(path, "/pshifting_arguments.txt"), "w")
@@ -394,6 +404,11 @@ shiftFootprintsByExperiment <- function(df,
     names(shifts) <- rfpFiles
     saveRDS(shifts, file = file.path(path, "shifting_table.rds"))
   }
+  if (verbose) {
+    message("Shifting done, detected shifts per file:")
+    print(shifts)
+  }
+
   return(invisible(NULL))
 }
 
@@ -402,9 +417,18 @@ shiftFootprintsByExperiment <- function(df,
 #' A good validation for you p-shifting, to see shifts are corresponding
 #' and close to the CDS TIS.
 #' @inheritParams shiftFootprintsByExperiment
+#' @inheritParams windowPerReadLength
 #' @param output name to save file, full path. (Default NULL) No saving.
+#' Sett to "auto" to save to QC_STATS folder of experiment named:
+#' "pshifts_barplots.png" or "pshifts_heatmaps.png" depending on type argument.
+#' Folder must exist!
 #' @param scoring which scoring scheme to use for heatmap, default
 #' "transcriptNormalized". Some alternatives: "sum", "zscore".
+#' @param type character, default "bar". Plot as faceted bars,
+#' gives more detailed information of read lengths,
+#' but harder to see patterns over multiple read lengths.
+#' Alternative: "heatmaps", better overview of patterns over
+#' multiple read lengths.
 #' @param title Title for top of plot, default "Ribo-seq".
 #' A more informative name could be "Ribo-seq zebrafish Chew et al. 2013"
 #' @param addFracPlot logical, default TRUE, add positional sum plot on top
@@ -419,26 +443,58 @@ shiftFootprintsByExperiment <- function(df,
 #' #shiftPlots(df, title = "Ribo-seq Human ORFik et al. 2020")
 shiftPlots <- function(df, output = NULL, title = "Ribo-seq",
                        scoring = "transcriptNormalized",
+                       pShifted = TRUE,
+                       upstream = if (pShifted) 5 else 20,
+                       downstream = if (pShifted) 20 else 5,
+                       type = "bar",
                        addFracPlot = TRUE,
                        BPPARAM = bpparam()) {
-  txNames <- filterTranscripts(df, 20, 21, 1)
+  if (!(type %in% c("bar", "heatmap")))
+    stop("The 'type' argument must be bar or heatmap")
   txdb <- loadTxdb(df)
+  txNames <- filterTranscripts(txdb, upstream, downstream + 1, 0)
   cds <-  loadRegion(txdb, part = "cds", names.keep = txNames)
   mrna <- loadRegion(txdb, part = "mrna", names.keep = txNames)
   style <- seqlevelsStyle(cds)
   plots <- bplapply(seq(nrow(df)),
-                    function(x, cds, mrna, style, paths, df) {
+                    function(x, cds, mrna, style, paths, df, upstream,
+                             downstream, type) {
     miniTitle <- gsub("_", " ", bamVarName(df, skip.experiment = TRUE)[x])
     hitMap <- windowPerReadLength(cds, mrna,  fimport(paths[x], style),
-                                  pShifted = TRUE)
-    coverageHeatMap(hitMap, scoring = scoring, addFracPlot = addFracPlot,
-                    title = miniTitle)
+                                  upstream = upstream, downstream = downstream)
+    if (type == "heatmap") {
+      coverageHeatMap(hitMap, scoring = scoring, addFracPlot = addFracPlot,
+                      title = miniTitle)
+    } else {
+      hitMap[, frame := position %% 3]
+      pSitePlot(hitMap, scoring = scoring,
+                facet = TRUE, frameSum = TRUE, title = miniTitle)
+    }
   }, cds = cds, mrna = mrna, style = style, BPPARAM = BPPARAM,
-  paths = filepath(df, "pshifted"), df = df)
+     paths = filepath(df, "pshifted"), df = df, upstream = upstream,
+     downstream = downstream, type = type)
   res <- do.call("grid.arrange", c(plots, ncol=1, top = title))
-  if (!is.null(output))
-    ggsave(output, res,
-           width = 225, height = (length(res) -1)*65,
-           units = "mm", dpi = 300)
+  if (!is.null(output)) {
+    if (type == "heatmap") {
+      if (output == "auto") {
+        dir.to.save <- file.path(dirname(df.rfp$filepath[1]), "QC_STATS")
+        output <- file.path(dir.to.save, "pshifts_heatmaps.png")
+      }
+      ggsave(output, res,
+             width = 225, height = (length(res) -1)*65,
+             units = "mm", dpi = 300)
+    } else {
+      if (output == "auto") {
+        dir.to.save <- file.path(dirname(df.rfp$filepath[1]), "QC_STATS")
+        output <- file.path(dir.to.save, "pshifts_barplots.png")
+      }
+      ggsave(output, res,
+             width = 225, height = (length(res) -1)*85,
+             units = "mm", dpi = 300)
+    }
+    message("Saved pshift plots to location: ",
+            output)
+  }
+
   return(res)
 }

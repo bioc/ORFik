@@ -49,13 +49,14 @@ get_genome_fasta <- function(genome, output.dir, organism,
 }
 
 #' @inherit getGenomeAndAnnotation
-#' @param genome a character path, default NULL.
-#' if set, must be path to genome fasta file, must be indexed.
-#' If you want to make sure chromosome naming of the GTF matches the genome.
-#' Not necessary if you downloaded from same source. If value is NULL or FALSE,
-#' will be ignored.
+#' @param genome character path, default NULL.
+#' Path to fasta genome, corresponding to the gtf. must be indexed
+#' (.fai file must exist there).
+#' If you want to make sure chromosome naming of the GTF matches the genome
+#' and correct seqlengths. If value is NULL or FALSE, it will be ignored.
+#' @inheritParams makeTxdbFromGenome
 get_genome_gtf <- function(GTF, output.dir, organism, assembly_type, gunzip,
-                           genome) {
+                           genome, optimize = FALSE) {
   if (GTF) { # gtf of organism
     gtf <- biomartr:::getENSEMBL.gtf(organism = organism,
                                      type = "dna",
@@ -64,25 +65,7 @@ get_genome_gtf <- function(GTF, output.dir, organism, assembly_type, gunzip,
 
     if (gunzip) # unzip gtf file
       gtf <- R.utils::gunzip(gtf, overwrite = TRUE)
-    message("Making txdb of GTF")
-    organismCapital <- paste0(toupper(substr(organism, 1, 1)),
-                              substr(organism, 2, nchar(organism)))
-    organismCapital <- gsub("_", " ", organismCapital)
-
-    if (!is.logical(genome) & !is.null(genome)) {
-      fa <- FaFile(genome)
-      fa.seqinfo <- seqinfo(fa)
-      if ("MT" %in% names(fa.seqinfo))
-        isCircular(fa.seqinfo)["MT"] <- TRUE
-      txdb <- GenomicFeatures::makeTxDbFromGFF(gtf, organism = organismCapital,
-                                               chrominfo = fa.seqinfo)
-      seqlevelsStyle(txdb) <- seqlevelsStyle(fa)[1]
-    } else {
-      txdb <- GenomicFeatures::makeTxDbFromGFF(gtf, organism = organismCapital)
-    }
-
-    txdb_file <- paste0(gtf, ".db")
-    AnnotationDbi::saveDb(txdb, txdb_file)
+    makeTxdbFromGenome(gtf, genome, organism, optimize)
   } else { # check if it already exists
     gtf <- grep(pattern = organism,
                 x = list.files(output.dir, full.names = TRUE),

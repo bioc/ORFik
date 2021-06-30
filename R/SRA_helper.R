@@ -190,15 +190,24 @@ download.SRA <- function(info, outdir, rename = TRUE,
 
 #' Downloads metadata from SRA
 #'
+#' Given a experiment identifier, query information from different locations of SRA
+#' to get a complete metadata table of the experiment.
 #' @param SRP a string, a study ID as either the SRP, ERP, DRP, PRJ or GSE of the study,
 #' examples would be "SRP226389" or "ERP116106". If GSE it will try to convert to the SRP
 #' to find the files.
-#' @param outdir directory to save file,
+#' @param outdir directory to save file, default: tempdir().
 #' The file will be called "SraRunInfo_SRP.csv", where SRP is
-#' the SRP argument.
+#' the SRP argument. We advice to use bioproject IDs "PRJNA...".
 #' The directory will be created if not existing.
 #' @param remove.invalid logical, default TRUE. Remove Runs with 0 reads (spots)
-#' @return a data.table of the opened file
+#' @param auto.detect logical, default FALSE. If TRUE, ORFik will add additional columns:\cr
+#' LIBRARYTYPE: (is this Ribo-seq or mRNA-seq, CAGE etc), \cr
+#' REPLICATE: (is this replicate 1, 2 etc),\cr
+#' STAGE: (Which time point, cell line or tissue is this, HEK293, TCP-1, 24hpf etc),\cr
+#' CONDITION: (is this Wild type control or a mutant etc).\cr
+#' These values are only qualified guesses from the metadata, so always double check!
+#' @return a data.table of the metadata, 1 row per sample,
+#'  SRR run number defined in Run column.
 #' @importFrom utils download.file
 #' @importFrom data.table fread
 #' @importFrom data.table fwrite
@@ -215,7 +224,8 @@ download.SRA <- function(info, outdir, rename = TRUE,
 #' # download.SRA.metadata("ERP116106", outdir)
 #' ## Originally on GEO (GSE)
 #' # download.SRA.metadata("GSE61011", outdir)
-download.SRA.metadata <- function(SRP, outdir, remove.invalid = TRUE) {
+download.SRA.metadata <- function(SRP, outdir = tempdir(), remove.invalid = TRUE,
+                                  auto.detect = FALSE) {
   dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
   destfile <- paste0(outdir, "/SraRunInfo_", SRP, ".csv")
@@ -262,7 +272,8 @@ download.SRA.metadata <- function(SRP, outdir, remove.invalid = TRUE) {
     return(file)
   } else {
     if ("sample_title" %in% colnames(file)) return(file)
-
+    file[, MONTH := substr(ReleaseDate, 6, 7)]
+    file[, YEAR := gsub("-.*", "", ReleaseDate)]
     file <- file[, -c("ReleaseDate", "LoadDate", "download_path", "RunHash", "ReadHash", "Consent")]
     # Download xml and add more data
     url <- "https://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?save=efetch&db=sra&rettype=xml&term="
@@ -275,24 +286,47 @@ download.SRA.metadata <- function(SRP, outdir, remove.invalid = TRUE) {
     dt <- data.table()
     # TODO: add fields like author and date
     for(i in seq_along(a$EXPERIMENT_PACKAGE_SET)) { # Per sample
+      EXP_SAMPLE <- a$EXPERIMENT_PACKAGE_SET[i]$EXPERIMENT_PACKAGE
       # Get Sample title
-      xml.TITLE <- unlist(a$EXPERIMENT_PACKAGE_SET[i]$EXPERIMENT_PACKAGE$SAMPLE$TITLE)
+      xml.TITLE <- unlist(EXP_SAMPLE$SAMPLE$TITLE)
+      xml.AUTHOR <- unlist(EXP_SAMPLE$Organization$Contact$Name$Last)
       # For each run in sample
       xml.RUN <- c()
-      for (j in seq_along(a$EXPERIMENT_PACKAGE_SET[i]$EXPERIMENT_PACKAGE$RUN_SET)) {
-        xml.RUN <- c(xml.RUN, unlist(a$EXPERIMENT_PACKAGE_SET[i]$EXPERIMENT_PACKAGE$RUN_SET[j]$RUN$IDENTIFIERS$PRIMARY_ID))
+      for (j in seq_along(EXP_SAMPLE$RUN_SET)) {
+        xml.RUN <- c(xml.RUN, unlist(EXP_SAMPLE$RUN_SET[j]$RUN$IDENTIFIERS$PRIMARY_ID))
       }
       xml.TITLE <- ifelse(is.null(xml.TITLE), "", xml.TITLE)
+      xml.AUTHOR <- ifelse(is.null(xml.AUTHOR), "",
+                           ifelse(xml.AUTHOR %in% c("Curators", "GEO"), "", xml.AUTHOR))
       if (length(xml.RUN) == 0) xml.RUN <- ""
-      dt <- rbind(dt, cbind(xml.TITLE, xml.RUN))
+      dt <- rbind(dt, cbind(xml.AUTHOR, xml.TITLE, xml.RUN))
     }
-    colnames(dt) <- c("sample_title", "Run")
+    colnames(dt) <- c("AUTHOR", "sample_title", "Run")
     dt <- dt[Run %in% file$Run]
     if (length(dt) > 0) {
       file <- data.table::merge.data.table(file, dt, by = "Run")
     }
     # Remove xml and keep runinfo
     file.remove(destfile_xml)
+
+    # Create ORFik guess columns from metadata:
+    if (auto.detect) {
+      file$LIBRARYTYPE <- findFromPath(file$sample_title,
+                                       libNames(), "auto")
+      if (any(file$LIBRARYTYPE %in% c(""))){ # Check if valid library strategy
+        file[LIBRARYTYPE == "" & !(LibraryStrategy %in%  c("RNA-Seq", "OTHER")),]$LIBRARYTYPE <-
+          findFromPath(file[LIBRARYTYPE == "" & !(LibraryStrategy %in%  c("RNA-Seq", "OTHER")),]$LibraryStrategy,
+                       libNames(), "auto")
+      }
+      file$REPLICATE <- findFromPath(file$sample_title,
+                                     repNames(), "auto")
+      stages <- rbind(stageNames(), tissueNames(), cellLineNames())
+      file$STAGE <- findFromPath(file$sample_title, stages, "auto")
+      file$CONDITION <- findFromPath(file$sample_title,
+                                     conditionNames(), "auto")
+      file$INHIBITOR <- findFromPath(file$sample_title,
+                                     inhibitorNames(), "auto")
+    }
     fwrite(file, destfile)
   }
   return(file)
@@ -387,6 +421,7 @@ rename.SRA.files <- function(files, new_names) {
     warning("Did not find a way for valid renaming, returning without renaming!")
     return(files)
   }
+  names(new_names) <- basename(files)
   return(new_names)
 }
 
@@ -417,7 +452,10 @@ download.ebi <- function(info, outdir, rename = TRUE,
   urls <- ORFik:::find_url_ebi(SRR)
   if (length(urls) == 0) {
     message("Fastq files not found on ebi")
-    return(files)
+    return(NULL)
+  } else if (length(urls) < length(SRR)) {
+    message("Not al fastq files found on ebi")
+    return(NULL)
   }
 
   files <- file.path(outdir, basename(urls))
@@ -476,10 +514,17 @@ download.ebi <- function(info, outdir, rename = TRUE,
 #' # Paired
 #' #ORFik:::find_url_ebi("SRR105788")
 find_url_ebi <- function(SRR, stop.on.error = FALSE) {
+  message("Finding optimal download urls from ebi...")
+  ebi_server <- "ftp://ftp.sra.ebi.ac.uk"
+  # Check that we can connect to ebi
+  exists.ftp.dir.fast(ebi_server, report.error = TRUE)
+
+  # Create candidate directories
   SRR_first_3 <- substring(SRR, 1, 6)
   SRR_last_3 <- paste0("0", reverse(substring(reverse(SRR), 1, 2)))
   SRR_last_1 <- paste0("00", reverse(substring(reverse(SRR), 1, 1)))
-  SRR_default <- file.path("ftp://ftp.sra.ebi.ac.uk/vol1/fastq", SRR_first_3)
+  SRR_default <- file.path(ebi_server, "vol1/fastq", SRR_first_3)
+
   SRR_fastq <- paste0(SRR, ".fastq.gz")
   SRR_fastq_paired <- c(paste0(SRR, c("_1"), ".fastq.gz"),
                         paste0(SRR, c("_2"), ".fastq.gz"))
@@ -494,23 +539,27 @@ find_url_ebi <- function(SRR, stop.on.error = FALSE) {
   SRR_paths_spec_paired <- file.path(SRR_default, SRR, SRR_fastq_paired)
   # Check what format the files are found in (3 types: 2 each)
   url.exists <-  sapply(SRR_paths, function(x)
-    exists.ftp.file.fast(x, x))
+    exists.ftp.file.fast(x))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_paired, function(x)
-                    exists.ftp.file.fast(x, x)))
+                    exists.ftp.file.fast(x)))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_spec2, function(x)
-                    exists.ftp.file.fast(x, x)))
+                    exists.ftp.file.fast(x)))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_paired_spec2, function(x)
-                    exists.ftp.file.fast(x, x)))
+                    exists.ftp.file.fast(x)))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_spec, function(x)
-                    exists.ftp.file.fast(x, x)))
+                    exists.ftp.file.fast(x)))
   url.exists <- c(url.exists,
                   sapply(SRR_paths_spec_paired, function(x)
-                    exists.ftp.file.fast(x, x)))
-  final.path <- names(url.exists[url.exists])
+                    exists.ftp.file.fast(x)))
+  final.path.temp <- names(url.exists[url.exists])
+  # Sort them correctly as input
+  final.path <- unlist(sapply(c(SRR, "asdasd"), function(x, final.path.temp) {
+    sort(final.path.temp[grepl(x, final.path.temp)])
+  }, final.path.temp = final.path.temp), use.names = FALSE)
 
   valid <- TRUE
   if (length(final.path) == 0) valid <- FALSE
