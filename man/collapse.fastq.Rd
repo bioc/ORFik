@@ -8,7 +8,8 @@ collapse.fastq(
   files,
   outdir = file.path(dirname(files[1]), "collapsed"),
   header.out.format = "ribotoolkit",
-  compress = FALSE
+  compress = FALSE,
+  prefix = "collapsed_"
 )
 }
 \arguments{
@@ -20,14 +21,17 @@ Inside same folder as input files, then create subfolder "collapsed", and add a 
 of "collapsed_" to the output names in that folder.}
 
 \item{header.out.format}{character, default "ribotoolkit", else must be "fastx".
-How the read header of the output fasta should be formated: ribotoolkit: "<seq1_x55",
+How the read header of the output fasta should be formated: ribotoolkit: ">seq1_x55",
 sequence 1 has 55 duplicated reads collapsed.
-fastx: "<1-55", sequence 1 has 55 duplicated reads collapsed}
+fastx: ">1-55", sequence 1 has 55 duplicated reads collapsed}
 
 \item{compress}{logical, default FALSE}
+
+\item{prefix}{character, default "collapsed_"
+Prefix to name of output file.}
 }
 \value{
-invisible(NULL)
+invisible(NULL), files saved to disc in fasta format.
 }
 \description{
 For each unique read in the file, collapse into 1 and state in the fasta header
