@@ -21,8 +21,9 @@
 #' 33, but will remove 3S so final read width is 30 in ORFik.
 #' @param footprints \code{\link{GAlignments}} object of RiboSeq reads
 #' @param shifts a data.frame / data.table with minimum 2 columns,
-#' fraction (selected_lengths) and selected_shifts (relative position).
-#' Output from \code{\link{detectRibosomeShifts}}
+#' fraction (selected read lengths) and offsets_start (relative position in nt).
+#' Output from \code{\link{detectRibosomeShifts}}.\cr
+#' Run \code{ORFik::shifts.load(df)[[1]]} for an example of input.
 #' @param sort logical, default TRUE. If False will keep original order of
 #' reads, and not sort output reads in increasing genomic location per
 #' chromosome and strand.
@@ -51,7 +52,7 @@ shiftFootprints <- function(footprints, shifts, sort = TRUE) {
   if (!is(shifts, "data.frame")) stop("shifts must be data.frame/data.table")
   if (nrow(shifts) == 0) stop("No shifts found in data.frame")
   if (is.null(shifts$fraction) | is.null(shifts$offsets_start))
-    stop("Either fraction or offsets_start column in shifts is not set!")
+    stop("Either fraction (read lengths) or offsets_start (shifts by nt) column in shifts is not set!")
 
   selected_lengths <- shifts$fraction
   selected_shifts <- shifts$offsets_start
@@ -216,7 +217,7 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
   tab <- lengths[, .(counts = sum(score)), by = size]
   tab <- tab[(counts >= min_reads) & (size %in% accepted.lengths),]
   if (nrow(tab) == 0) stop("No valid read lengths found with",
-                            "accepted.lengths and counts > min_reads")
+                            " accepted.lengths and counts > min_reads")
   cds <- cds[countOverlapsW(cds, footprints, "score") > 0]
   if (verbose) message("Number of CDSs used for p-site detection: ", length(cds))
   top_tx <- percentage_to_ratio(top_tx, cds)
@@ -299,6 +300,13 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
 #' @param log logical, default (TRUE), output a log file with parameters used and
 #' a .rds file with all shifts per library
 #' (can be loaded with \code{\link{shifts.load}})
+#' @param shift.list default NULL, or a list containing named data.frames / data.tables
+#' with minimum 2 columns, fraction (selected read lengths) and
+#' offsets_start (relative position in nt). 1 named data.frame / data.table per library.
+#' Output from \code{\link{detectRibosomeShifts}}.\cr
+#' Run \code{ORFik::shifts.load(df)} for an example of input. The names of the list must
+#' be the file.paths of the Ribo-seq libraries. Use this to edit the shifts, if
+#' you suspect some of them are wrong in an experiment.
 #' @return NULL (Objects are saved to out.dir/pshited/"name_pshifted.ofst",
 #' wig, bedo or .bedo)
 #' @importFrom rtracklayer export.bed
@@ -309,11 +317,18 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
 #' @examples
 #' df <- ORFik.template.experiment()
 #' df <- df[3,] #lets only p-shift RFP sample at index 3
-#' # If you want to check it in IGV do:
+#' ## If you want to check it in IGV do:
 #' shiftFootprintsByExperiment(df)
 #' # Then use the .wig files that are created, which are readable in IGV.
 #' # If you only need in R, do: (then you get no .wig files)
 #' #shiftFootprintsByExperiment(df, output_format = "ofst")
+#' ## With debug info:
+#' #shiftFootprintsByExperiment(df, verbose = TRUE)
+#' ## Re-shift, if you think some are wrong
+#' ## Here we update library 1, third read length to shift 12
+#' shift.list <- shifts.load(df)
+#' shift.list[[1]]$offsets_start[3] <- -12
+#' #shiftFootprintsByExperiment(df, shift.list = shift.list)
 shiftFootprintsByExperiment <- function(df,
                                         out.dir = pasteDir(dirname(
                                           df$filepath[1]), "/pshifted/"),
@@ -324,6 +339,7 @@ shiftFootprintsByExperiment <- function(df,
                                         accepted.lengths = 26:34,
                                         output_format = c("ofst", "wig"),
                                         BPPARAM = bpparam(), tx = NULL,
+                                        shift.list = NULL,
                                         log = TRUE, heatmap = FALSE,
                                         must.be.periodic = TRUE, strict.fft = TRUE,
                                         verbose = FALSE) {
@@ -332,6 +348,11 @@ shiftFootprintsByExperiment <- function(df,
   if (!dir.exists(path)) stop(paste("out.dir", out.dir, "does not exist!"))
   if (!any(c("bed", "bedo", "wig", "ofst") %in% output_format))
     stop("output_format allowed bed, bedo, wig or ofst")
+  rfpFiles <- filepath(df, "ofst") # If ofst file not present, uses bam file
+  if (!is.null(shift.list)) {
+    if (!all(names(shift.list) %in% rfpFiles))
+      stop("shift.list does not contain all files to be shifted!")
+  }
   for (out.form in output_format)
     message(paste("Saving", out.form, "files to:", out.dir))
   message(paste("Shifting reads in experiment:", df@experiment))
@@ -339,28 +360,33 @@ shiftFootprintsByExperiment <- function(df,
   txdb <- loadTxdb(df)
   tx <- loadRegion(txdb, part = "mrna")
   txNames <- filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR)
-  rfpFiles <- filepath(df, "ofst") # If ofst file not present, uses bam file
+
 
   shifts <- bplapply(rfpFiles,
            FUN = function(file, path, df, start, stop,
                           top_tx, minFiveUTR, minCDS, minThreeUTR,
                           firstN, min_reads, accepted.lengths,
-                          output_format, heatmap, tx,
+                          output_format, heatmap, tx, shift.list,
                           must.be.periodic, txNames, strict.fft,
                           verbose = verbose
                           ) {
     message(file)
     rfp <- fimport(file)
-    shifts <- detectRibosomeShifts(rfp, txdb = loadTxdb(df), start = start,
-                                   stop = stop, top_tx = top_tx,
-                                   minFiveUTR = minFiveUTR,
-                                   minCDS = minCDS, minThreeUTR = minThreeUTR,
-                                   txNames = txNames, firstN = firstN,
-                                   min_reads = min_reads,
-                                   accepted.lengths = accepted.lengths,
-                                   heatmap = heatmap, tx = tx,
-                                   must.be.periodic = must.be.periodic,
-                                   strict.fft = strict.fft, verbose = verbose)
+    if (!is.null(shift.list)) { # Pre defined shifts
+      shifts <- shift.list[file][[1]]
+    } else {
+      shifts <- detectRibosomeShifts(rfp, txdb = loadTxdb(df), start = start,
+                                     stop = stop, top_tx = top_tx,
+                                     minFiveUTR = minFiveUTR,
+                                     minCDS = minCDS, minThreeUTR = minThreeUTR,
+                                     txNames = txNames, firstN = firstN,
+                                     min_reads = min_reads,
+                                     accepted.lengths = accepted.lengths,
+                                     heatmap = heatmap, tx = tx,
+                                     must.be.periodic = must.be.periodic,
+                                     strict.fft = strict.fft, verbose = verbose)
+    }
+
     shifted <- shiftFootprints(rfp, shifts)
     name <- paste0(path, remove.file_ext(file, basename = TRUE))
 
@@ -390,8 +416,8 @@ shiftFootprintsByExperiment <- function(df,
      firstN = firstN, min_reads = min_reads,
      accepted.lengths = accepted.lengths, output_format = output_format,
      heatmap = heatmap, must.be.periodic = must.be.periodic,
-     strict.fft = strict.fft, verbose = verbose, tx = tx, txNames = txNames,
-     BPPARAM = BPPARAM)
+     strict.fft = strict.fft, verbose = verbose, tx = tx,
+     shift.list = shift.list, txNames = txNames, BPPARAM = BPPARAM)
 
   if (log) {
     fileConn<-file(paste0(path, "/pshifting_arguments.txt"), "w")
@@ -437,6 +463,7 @@ shiftFootprintsByExperiment <- function(df,
 #' "auto".
 #' @importFrom gridExtra grid.arrange
 #' @return a ggplot2 grob object
+#' @family pshifting
 #' @export
 #' @examples
 #' df <- ORFik.template.experiment()
@@ -493,7 +520,7 @@ shiftPlots <- function(df, output = NULL, title = "Ribo-seq",
         output <- file.path(dir.to.save, paste0("pshifts_barplots", plot.ext))
       }
       ggsave(output, res,
-             width = 225, height = (length(res) -1)*85,
+             width = 225, height = (length(res) -1)*95,
              units = "mm", dpi = 300, limitsize = FALSE)
     }
     message("Saved pshift plots to location: ",

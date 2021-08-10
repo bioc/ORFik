@@ -19,6 +19,7 @@ shiftFootprintsByExperiment(
   output_format = c("ofst", "wig"),
   BPPARAM = bpparam(),
   tx = NULL,
+  shift.list = NULL,
   log = TRUE,
   heatmap = FALSE,
   must.be.periodic = TRUE,
@@ -81,6 +82,14 @@ your own version. Example: extendLeaders(tx, 30)
 Where 30 bases will be new "leaders". Since each original transcript was
 either only CDS or non-coding (filtered out).}
 
+\item{shift.list}{default NULL, or a list containing named data.frames / data.tables
+with minimum 2 columns, fraction (selected read lengths) and
+offsets_start (relative position in nt). 1 named data.frame / data.table per library.
+Output from \code{\link{detectRibosomeShifts}}.\cr
+Run \code{ORFik::shifts.load(df)} for an example of input. The names of the list must
+be the file.paths of the Ribo-seq libraries. Use this to edit the shifts, if
+you suspect some of them are wrong in an experiment.}
+
 \item{log}{logical, default (TRUE), output a log file with parameters used and
 a .rds file with all shifts per library
 (can be loaded with \code{\link{shifts.load}})}
@@ -127,11 +136,18 @@ read lengths, for human, mouse etc, normally around 27:30.
 \examples{
 df <- ORFik.template.experiment()
 df <- df[3,] #lets only p-shift RFP sample at index 3
-# If you want to check it in IGV do:
+## If you want to check it in IGV do:
 shiftFootprintsByExperiment(df)
 # Then use the .wig files that are created, which are readable in IGV.
 # If you only need in R, do: (then you get no .wig files)
 #shiftFootprintsByExperiment(df, output_format = "ofst")
+## With debug info:
+#shiftFootprintsByExperiment(df, verbose = TRUE)
+## Re-shift, if you think some are wrong
+## Here we update library 1, third read length to shift 12
+shift.list <- shifts.load(df)
+shift.list[[1]]$offsets_start[3] <- -12
+#shiftFootprintsByExperiment(df, shift.list = shift.list)
 }
 \references{
 https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4912-6
@@ -140,6 +156,8 @@ https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4912-6
 Other pshifting: 
 \code{\link{changePointAnalysis}()},
 \code{\link{detectRibosomeShifts}()},
-\code{\link{shiftFootprints}()}
+\code{\link{shiftFootprints}()},
+\code{\link{shiftPlots}()},
+\code{\link{shifts.load}()}
 }
 \concept{pshifting}

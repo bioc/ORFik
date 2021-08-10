@@ -99,7 +99,9 @@ QCstats.plot <- function(stats, output.dir = NULL, plot.ext = ".pdf") {
 
 #' Correlation plots between all samples
 #'
-#' Get 2 correlation plots of raw counts and log2(count + 1) over
+#' Get 3 correlation plots (1 simple (correlation colors), 2 complex with
+#' correlation value + dot plots of per gene )
+#' of raw counts and log2(count + 1) over
 #' selected region in: c("mrna", "leaders", "cds", "trailers")
 #' @inheritParams QCplots
 #' @param output.dir directory to save to, 2 files named: cor_plot.pdf and
@@ -108,30 +110,97 @@ QCstats.plot <- function(stats, output.dir = NULL, plot.ext = ".pdf") {
 #' @param height numeric, default 400 (in mm)
 #' @param width numeric, default 400 (in mm)
 #' @param size numeric, size of dots, default 0.15.
+#' @param complex.correlation.plots logical, default TRUE. Add in addition
+#' to simple correlation plot two computationally heavy dots + correlation plots.
+#' Useful for deeper analysis, but takes longer time to run, especially on low-quality
+#' gpu computers. Set to FALSE to skip these.
 #' @return invisible(NULL)
 #' @importFrom GGally wrap
 correlation.plots <- function(df, output.dir,
                               region = "mrna", type = "fpkm",
-                              height = 400, width = 400, size = 0.15, plot.ext = ".pdf") {
+                              height = 400, width = 400, size = 0.15, plot.ext = ".pdf",
+                              complex.correlation.plots = TRUE) {
   message("- Correlation plots")
+
   # Load fpkm values
   data_for_pairs <- countTable(df, region, type = type)
   # Settings for points
   point_settings <- list(continuous = wrap("points", alpha = 0.3, size = size),
                          combo = wrap("dot", alpha = 0.4, size=0.2))
-  message("  - raw scaled fpkm")
-  paired_plot <- ggpairs(as.data.frame(data_for_pairs),
-                         columns = 1:ncol(data_for_pairs),
-                         lower = point_settings)
-  ggsave(pasteDir(output.dir, paste0("cor_plot", plot.ext)), paired_plot,
+  message("  - raw scaled fpkm (simple)")
+  paired_plot <- GGally::ggcorr(as.data.frame(data_for_pairs), label = TRUE, label_round = 2)
+  ggsave(pasteDir(output.dir, paste0("cor_plot_simple", plot.ext)), paired_plot,
          height = height, width = width, units = 'mm', dpi = 300)
-  message("  - log2 scaled fpkm")
-  paired_plot <- ggpairs(as.data.frame(log2(data_for_pairs + 1)),
-                         columns = 1:ncol(data_for_pairs),
-                         lower = point_settings)
-  ggsave(pasteDir(output.dir, paste0("cor_plot_log2", plot.ext)), paired_plot,
-         height = height, width = width, units = 'mm', dpi = 300)
+
+  if (complex.correlation.plots) {
+    if (nrow(df) > 30) { # Avoid error from ggplot2 backend
+      message("ORFik only supports complex correlation plots for up to 30 libraries in experiment!")
+      return(invisible(NULL))
+    }
+    message("  - raw scaled fpkm (complex)")
+    paired_plot <- ggpairs(as.data.frame(data_for_pairs),
+                           columns = 1:ncol(data_for_pairs),
+                           lower = point_settings)
+    ggsave(pasteDir(output.dir, paste0("cor_plot", plot.ext)), paired_plot,
+           height = height, width = width, units = 'mm', dpi = 300)
+    message("  - log2 scaled fpkm (complex)")
+    paired_plot <- ggpairs(as.data.frame(log2(data_for_pairs + 1)),
+                           columns = 1:ncol(data_for_pairs),
+                           lower = point_settings)
+    ggsave(pasteDir(output.dir, paste0("cor_plot_log2", plot.ext)), paired_plot,
+           height = height, width = width, units = 'mm', dpi = 300)
+  }
+
   return(invisible(NULL))
+}
+
+#' Simple PCA analysis
+#'
+#' Detect outlier libraries with PCA analysis.
+#' Will output PCA plot of PCA component 1 (x-axis) vs
+#' PCA component 2 (y-axis) for each library (colored by library),
+#' shape by replicate. Will be extended to allow batch correction
+#' in the future.
+#' @inheritParams QCplots
+#' @param output.dir default NULL, else character path to directory.
+#' File saved as "PCAplot_(experiment name)(plot.ext)"
+#' @param table data.table, default countTable(df, "cds", type = "fpkm"),
+#' a data.table of counts per column (default normalized fpkm values).
+#' @param title character, default "CDS fpkm (All genes)".
+#' @return ggplot or invisible(NULL) if output.dir is defined
+pcaExperiment <- function(df, output.dir = NULL,
+                          table = countTable(df, "cds", type = "fpkm"),
+                          title = "CDS fpkm (All genes)",
+                          plot.ext = ".pdf") {
+  pca <- stats::prcomp(table, scale = FALSE)
+  dt <- data.table(pca$rotation, keep.rownames = TRUE)
+  dt$sample <- dt$rn
+  if (any(df$rep > 1, na.rm = TRUE)) {
+    dt$replicate <- df$rep
+    dt$replicate[is.na(dt$replicate)] <- 1
+    dt$replicate <- as.factor(dt$replicate)
+  } else dt$replicate <- as.factor("1")
+
+  plot <- ggplot(data = dt,
+                 aes(x = PC1, y = PC2)) +
+    geom_point(aes(shape=replicate, color = sample),
+               size = 3, alpha = 0.8) +
+    scale_fill_brewer() +
+    ggtitle(title) +
+    theme(legend.text=element_text(size=7))
+  if(!is.null(output.dir)) {
+    if (output.dir == "auto") {
+      path <- file.path(dirname(df$filepath[1]), "QC_STATS",
+                        paste0("PCAplot_", df@experiment, plot.ext))
+    } else {
+      path <- file.path(output.dir,
+                        paste0("PCAplot_", df@experiment, plot.ext))
+    }
+    ggsave(path, plot,
+           height = 4 + (nrow(df)*0.1), width = 5 + (nrow(df)*0.1))
+    return(invisible(NULL))
+  }
+  return(plot)
 }
 
 #' Quality control for pshifted Ribo-seq data
@@ -194,30 +263,9 @@ RiboQC.plot <- function(df, output.dir = file.path(dirname(df$filepath[1]), "QC_
                     plot.title = element_text(size=11),
                     panel.grid.minor = element_blank())
 
-
-  outputLibs(df, type = type)
-  cds <- loadRegion(df, part = "cds")
-  libs <- bamVarName(df)
-
-  # Frame distribution over all
-  frame_sum_per1 <- bplapply(libs, FUN = function(lib, cds, weight) {
-    total <- regionPerReadLength(cds, get(lib, mode = "S4"),
-                                 withFrames = TRUE, scoring = "frameSumPerL",
-                                 weight = weight, drop.zero.dt = TRUE)
-    total[, length := fraction]
-    #hits <- get(lib, mode = "S4")[countOverlaps(get(lib, mode = "S4"), cds) > 0]
-    total[, fraction := rep(lib, nrow(total))]
-  }, cds = cds, weight = weight, BPPARAM = BPPARAM)
-  frame_sum_per <- rbindlist(frame_sum_per1)
-
-  frame_sum_per$frame <- as.factor(frame_sum_per$frame)
-  frame_sum_per$fraction <- as.factor(frame_sum_per$fraction)
-  frame_sum_per[, percent := (score / sum(score))*100, by = fraction]
-  frame_sum_per[, fraction := factor(fraction, levels = libs,
-                                     labels = bamVarName(df, skip.libtype = TRUE), ordered = TRUE)]
-
-  frame_sum_per[, fraction := factor(fraction, levels = unique(fraction), ordered = TRUE)]
-  # stacked
+  # frame distributions
+  frame_sum_per <- orfFrameDistributions(df, type = type, weight = weight,
+                                         BPPARAM = BPPARAM)
   gg_frame_per_stack <- ggplot(frame_sum_per, aes(x = length, y = percent)) +
     geom_bar(aes(fill = frame), stat="identity", position = bar.position)+
     scale_x_continuous(breaks = unique(frame_sum_per$length)) +
@@ -229,7 +277,7 @@ RiboQC.plot <- function(df, output.dir = file.path(dirname(df$filepath[1]), "QC_
     scale_y_continuous(breaks = c(15, 35))
   gg_frame_per_stack
 
-  # all_tx_types > 1%
+  # content: all_tx_types > 1%
   all_tx_types <- which(colnames(stats) == "All_tx_types") + 1
   all_tx_regions <- colnames(stats)[c(all_tx_types:length(colnames(stats)))]
   all_tx_regions <- c("mRNA", all_tx_regions)
@@ -248,7 +296,7 @@ RiboQC.plot <- function(df, output.dir = file.path(dirname(df$filepath[1]), "QC_
     labs(fill = "tx. type")  +
     scale_y_continuous(breaks = c(50, 100))
   gg_all_tx_regions
-  # all_tx_types <= 1%
+  # content: all_tx_types <= 1%
   gg_all_tx_other <-
     ggplot(dt_all_tx_other, aes(y = percentage, x = sample_id)) +
     geom_bar(aes(fill = variable), stat="identity", position = "stack")+
