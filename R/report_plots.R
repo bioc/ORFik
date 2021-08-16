@@ -114,19 +114,19 @@ QCstats.plot <- function(stats, output.dir = NULL, plot.ext = ".pdf") {
 #' to simple correlation plot two computationally heavy dots + correlation plots.
 #' Useful for deeper analysis, but takes longer time to run, especially on low-quality
 #' gpu computers. Set to FALSE to skip these.
+#' @param data_for_pairs a data.table from ORFik::countTable of counts wanted.
+#' Default is fpkm of all mRNA counts over all libraries.
 #' @return invisible(NULL)
 #' @importFrom GGally wrap
 correlation.plots <- function(df, output.dir,
                               region = "mrna", type = "fpkm",
                               height = 400, width = 400, size = 0.15, plot.ext = ".pdf",
-                              complex.correlation.plots = TRUE) {
+                              complex.correlation.plots = TRUE,
+                              data_for_pairs = countTable(df, region, type = type)) {
   message("- Correlation plots")
-
-  # Load fpkm values
-  data_for_pairs <- countTable(df, region, type = type)
   # Settings for points
-  point_settings <- list(continuous = wrap("points", alpha = 0.3, size = size),
-                         combo = wrap("dot", alpha = 0.4, size=0.2))
+  point_settings <- list(continuous = GGally::wrap("points", alpha = 0.3, size = size),
+                         combo = GGally::wrap("dot", alpha = 0.4, size=0.2))
   message("  - raw scaled fpkm (simple)")
   paired_plot <- GGally::ggcorr(as.data.frame(data_for_pairs), label = TRUE, label_round = 2)
   ggsave(pasteDir(output.dir, paste0("cor_plot_simple", plot.ext)), paired_plot,
@@ -168,6 +168,7 @@ correlation.plots <- function(df, output.dir,
 #' a data.table of counts per column (default normalized fpkm values).
 #' @param title character, default "CDS fpkm (All genes)".
 #' @return ggplot or invisible(NULL) if output.dir is defined
+#' @keywords internal
 pcaExperiment <- function(df, output.dir = NULL,
                           table = countTable(df, "cds", type = "fpkm"),
                           title = "CDS fpkm (All genes)",

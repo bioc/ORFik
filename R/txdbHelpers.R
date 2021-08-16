@@ -19,7 +19,8 @@
 #' to speed up loading of annotation regions from up to 15 seconds
 #' on human genome down to 0.1 second. ORFik will then load these optimized
 #' objects instead. Currently optimizes filterTranscript() function and
-#' loadRegion() function.
+#' loadRegion() function for 5' UTRs, 3' UTRs, CDS,
+#'  mRNA (all transcript with CDS) and tx (all transcripts).
 #' @return NULL, Txdb saved to disc named paste0(gtf, ".db")
 #' @export
 #' @examples
@@ -46,7 +47,10 @@ makeTxdbFromGenome <- function(gtf, genome = NULL, organism,
 
     txdb <- GenomicFeatures::makeTxDbFromGFF(gtf, organism = organismCapital,
                                              chrominfo = fa.seqinfo)
-    seqlevelsStyle(txdb) <- seqlevelsStyle(fa)[1]
+    if (seqlevelsStyle(txdb)[1] != seqlevelsStyle(fa)[1]) {
+      seqlevelsStyle(txdb) <- seqlevelsStyle(fa)[1]
+    }
+
   } else {
     txdb <- GenomicFeatures::makeTxDbFromGFF(gtf, organism = organismCapital)
   }
@@ -63,7 +67,7 @@ makeTxdbFromGenome <- function(gtf, genome = NULL, organism,
     optimizedTranscriptLengths(txdb, create.fst.version = TRUE)
     # Save RDS version of all transcript regions
     message("Creating rds speedup files for transcript regions")
-    parts <- c("mrna", "leaders", "cds", "trailers")
+    parts <- c("tx", "mrna", "leaders", "cds", "trailers")
     for (i in parts) {
       saveRDS(loadRegion(txdb, i, by = "tx"),
               file = paste0(base_path, "_", i, ".rds"))
@@ -75,6 +79,7 @@ makeTxdbFromGenome <- function(gtf, genome = NULL, organism,
 #' Get new exon ids after update of txdb
 #' @param txList a list, call of as.list(txdb)
 #' @return a new valid ordered list of exon ids (integer)
+#' @keywords internal
 remakeTxdbExonIds <- function(txList) {
   # remake exon ids
   DT <- data.table(start = txList$splicings$exon_start,
@@ -100,6 +105,7 @@ remakeTxdbExonIds <- function(txList) {
 #'
 #' @param exons a data.frame, call of as.list(txdb)$splicings
 #' @return a data.frame, modified call of as.list(txdb)
+#' @keywords internal
 updateTxdbRanks <- function(exons) {
 
   exons$exon_rank <-  unlist(lapply(runLength(Rle(exons$tx_id)),
@@ -114,6 +120,7 @@ updateTxdbRanks <- function(exons) {
 #' @param fiveUTRs a GRangesList of 5' leaders
 #' @return a list, modified call of as.list(txdb)
 #' @importFrom data.table setDT
+#' @keywords internal
 removeTxdbExons <- function(txList, fiveUTRs) {
   # remove old "dead" exons
   # get fiveUTR exons
@@ -144,6 +151,7 @@ removeTxdbExons <- function(txList, fiveUTRs) {
 #' Remove all transcripts, except the ones in fiveUTRs.
 #' @inheritParams updateTxdbStartSites
 #' @return a txList
+#' @keywords internal
 removeTxdbTranscripts <- function(txList, fiveUTRs) {
   # Transcripts
   match <- txList$transcripts$tx_name %in% names(fiveUTRs)
@@ -165,6 +173,7 @@ removeTxdbTranscripts <- function(txList, fiveUTRs) {
 #' @param removeUnused logical (FALSE), remove leaders that did not have any
 #' cage support. (standard is to set them to original annotation)
 #' @return a list, modified call of as.list(txdb)
+#' @keywords internal
 updateTxdbStartSites <- function(txList, fiveUTRs, removeUnused) {
   if (removeUnused) {
     txList <- removeTxdbTranscripts(txList, fiveUTRs)
@@ -362,6 +371,11 @@ loadRegions <- function(txdb, parts = c("mrna", "leaders", "cds", "trailers"),
 #' @param tx a GRangesList of transcripts (Optional, default NULL,
 #' all transcript of that type), else it must be names a list to subset on.
 #' @return a GRangesList of transcript of that type
+#' @export
+#' @examples
+#' gtf <- "path/to.gtf"
+#' #loadTranscriptType(gtf, part = "rRNA")
+#' #loadTranscriptType(gtf, part = "miRNA")
 loadTranscriptType <- function(object, part = "rRNA", tx = NULL) {
   type <- importGtfFromTxdb(object)
 
@@ -425,10 +439,19 @@ importGtfFromTxdb <- function(txdb) {
 #' @param stop.error logical TRUE
 #' @return a character file path, returns NULL if not valid
 #' and stop.error is FALSE.
+#' @keywords internal
 getGtfPathFromTxdb <- function(txdb, stop.error = TRUE) {
   genome <- metadata(txdb)[metadata(txdb)[,1] == "Data source", 2]
-  if (!(file_ext(genome) %in%
-        c("gtf", "gff", "gff3", "gff2"))) {
+  valid <- TRUE
+  if (length(genome) == 0) valid <- FALSE
+  if (valid) {
+    if (!(file_ext(genome) %in%
+          c("gtf", "gff", "gff3", "gff2"))) {
+      valid <- FALSE
+    }
+  }
+
+  if (!valid) {
     if (stop.error) {
       message("This is error txdb ->")
       message("It should be found by: metadata(txdb)[metadata(txdb)[,1] == 'Data source',]")
@@ -528,6 +551,7 @@ filterTranscripts <- function(txdb, minFiveUTR = 30L, minCDS = 150L,
 #' @param stop.error logical TRUE
 #' @return a character file path, returns NULL if not valid
 #' and stop.error is FALSE.
+#' @keywords internal
 optimized_txdb_path <- function(txdb, create.dir = FALSE, stop.error = TRUE) {
   genome <- getGtfPathFromTxdb(txdb, stop.error = stop.error)
   if (is.null(genome)) {
@@ -559,6 +583,7 @@ optimized_txdb_path <- function(txdb, create.dir = FALSE, stop.error = TRUE) {
 #' @importFrom data.table setDT
 #' @importFrom fst read_fst
 #' @importFrom fst write_fst
+#' @keywords internal
 optimizedTranscriptLengths <- function(txdb, with.utr5_len = TRUE,
                                        with.utr3_len = TRUE,
                                        create.fst.version = FALSE) {

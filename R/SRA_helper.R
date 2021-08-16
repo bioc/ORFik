@@ -86,6 +86,10 @@ install.sratoolkit <- function(folder = "~/bin", version = "2.10.9") {
 #' function that only works when subset is null,
 #' if subset is defined, it uses fastqdump, it is slower but supports subsetting.
 #' Force it to use fastqdump by setting this to FALSE.
+#' @param ebiDLMethod character, default "auto". Which download protocol
+#' to use in download.file when using ebi ftp download. Sometimes "curl"
+#' is might not work (the default auto usually), in those cases use wget.
+#' See "method" argument of ?download.file, for more info.
 #' @param BPPARAM how many cores/threads to use? default: bpparam().
 #' To see number of threads used, do \code{bpparam()$workers}
 #' @return a character vector of download files filepaths
@@ -117,6 +121,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
                          subset = NULL,
                          compress = TRUE,
                          use.ebi.ftp = is.null(subset),
+                         ebiDLMethod = "auto",
                          BPPARAM = bpparam()) {
 
   # If character presume SRR, if not check for column Run or SRR
@@ -140,7 +145,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
     subset <- as.integer(subset)
     settings <- paste(settings, "-X", subset)
   } else if (use.ebi.ftp){
-    files <- download.ebi(info, outdir, rename, BPPARAM)
+    files <- download.ebi(info, outdir, rename, ebiDLMethod, BPPARAM)
     if (length(files) > 0) return(files)
     message("Checking for fastq files using fastq-dump")
   }
@@ -417,6 +422,7 @@ download.SRA.metadata <- function(SRP, outdir = tempdir(), remove.invalid = TRUE
 #' to something more meaningful.
 #' @return a character vector of new file names
 #' @family sra
+#' @keywords internal
 rename.SRA.files <- function(files, new_names) {
   info <- NULL # Set to default
   if (!is.character(new_names)) { # Then auto-guess from meta data
@@ -503,8 +509,9 @@ rename.SRA.files <- function(files, new_names) {
 #' @inheritParams download.SRA
 #' @return character, full filepath of downloaded  files
 #' @family sra
+#' @keywords internal
 download.ebi <- function(info, outdir, rename = TRUE,
-                         BPPARAM = bpparam()) {
+                         ebiDLMethod = "auto", BPPARAM = bpparam()) {
 
   study <- NULL
   # If character presume SRR, if not check for column Run or SRR
@@ -535,7 +542,7 @@ download.ebi <- function(info, outdir, rename = TRUE,
 
   files <- file.path(outdir, basename(urls))
   message("Starting download of EBI runs:")
-  method <- ifelse(Sys.info()[1] == "Linux", "wget", "auto")
+  method <- ebiDLMethod
   BiocParallel::bplapply(urls, function(i, outdir, method) {
     message(i)
     download.file(i, destfile = file.path(outdir, basename(i)),
@@ -668,6 +675,7 @@ find_url_ebi <- function(SRR, stop.on.error = FALSE, study = NULL) {
 #'  if all files are not found. If FALSE returns empty character vector if error
 #'  is catched.
 #' @return character (1 element per SRR number)
+#' @keywords internal
 find_url_ebi_safe <- function(accession, SRR = NULL, stop.on.error = FALSE) {
   a <- data.table()
   for (i in accession) {

@@ -439,6 +439,7 @@ save.experiment <- function(df, file) {
 #' @param slot character, default "auto". If auto, use auto guessing of slot,
 #' else must be a character vector of length 1 or equal length as filepaths.
 #' @return a candidate library types (character vector)
+#' @keywords internal
 findFromPath <- function(filepaths, candidates, slot = "auto") {
   if (all(slot != "auto")) { # If not auto guess
     if(length(slot) != 1 & length(slot) != length(filepaths)) {
@@ -477,6 +478,7 @@ findFromPath <- function(filepaths, candidates, slot = "auto") {
 #' @param df an ORFik \code{\link{experiment}}
 #' @return library types (character vector)
 #' @family ORFik_experiment
+#' @keywords internal
 libraryTypes <- function(df) {
   if (is(df, "experiment")) {
     return(unique(df$libtype))
@@ -492,6 +494,7 @@ libraryTypes <- function(df) {
 #' @param df an ORFik \code{\link{experiment}}
 #' @return NULL (Stops if failed)
 #' @family ORFik_experiment
+#' @keywords internal
 validateExperiments <- function(df) {
   libTypes <- libraryTypes(df)
   if (!is(df, "experiment")) stop("df must be experiment!")
@@ -580,6 +583,7 @@ bamVarName <- function(df, skip.replicate = length(unique(df$rep)) == 1,
 #' @param skip.experiment a logical (FALSE), don't include experiment
 #' @param skip.libtype a logical (FALSE), don't include libtype
 #' @return variable name of library (character vector)
+#' @keywords internal
 bamVarNamePicker <- function(df, skip.replicate = FALSE,
                              skip.condition = FALSE,
                              skip.stage = FALSE, skip.fraction = FALSE,
@@ -707,7 +711,8 @@ filepath <- function(df, type, basename = FALSE) {
 #' Can also be custom user made folders inside the experiments bam folder.
 #' @param envir environment to save to, default (.GlobalEnv)
 #' @param BPPARAM how many cores/threads to use? default: bpparam().
-#' To see number of threads used, do \code{bpparam()$workers}
+#' To see number of threads used, do \code{bpparam()$workers}.
+#' You can also add a time remaining bar, for a more detailed pipeline.
 #' @return NULL (libraries set by envir assignment)
 #' @importFrom BiocParallel bplapply
 #' @importFrom BiocParallel bpparam
@@ -781,7 +786,7 @@ outputLibs <- function(df, chrStyle = NULL, type = "default",
 #' using those files as templates. If they are not in environment the
 #' .ofst files from the bam files are loaded (unless you are converting
 #' to .ofst then the .bam files are loaded).
-#' @param df an ORFik \code{\link{experiment}}
+#' @inheritParams outputLibs
 #' @param out.dir optional output directory, default:
 #' dirname(df$filepath[1]),
 #' if it is NULL, it will just reassign R objects to simplified libraries.
@@ -803,7 +808,6 @@ outputLibs <- function(df, chrStyle = NULL, type = "default",
 #' Will make a folder within out.dir with this name containing the files.
 #' @param reassign.when.saving logical, default FALSE. If TRUE, will reassign
 #' library to converted form after saving. Ignored when out.dir = NULL.
-#' @param envir which environment to save to, default .GlobalEnv
 #' @return NULL (saves files to disc or R .GlobalEnv)
 #' @export
 #' @examples
@@ -817,7 +821,7 @@ convertLibs <- function(df,
                        must.overlap = NULL, method = "None",
                        type = "ofst",
                        reassign.when.saving = FALSE,
-                       envir = .GlobalEnv) {
+                       envir = .GlobalEnv, BPPARAM = bpparam()) {
   if (!(type %in% c("ofst", "bedo", "bedoc", "wig")))
     stop("type must be either ofst, bedo or bedoc")
 
@@ -831,7 +835,7 @@ convertLibs <- function(df,
     message(paste("Saving,", type, "files to:", out.dir))
   }
 
-  outputLibs(df, type = "ofst", chrStyle = must.overlap)
+  outputLibs(df, type = "ofst", chrStyle = must.overlap, BPPARAM = BPPARAM)
 
   varNames <- bamVarName(df)
   i <- 1
@@ -908,6 +912,7 @@ remove.experiments <- function(df, envir = .GlobalEnv) {
 #' @importFrom tools file_ext
 #' @return (data.table) All files found from types parameter.
 #' With 2 extra column (logical), is it wig pairs, and paired bam files.
+#' @keywords internal
 findLibrariesInFolder <- function(dir, types, pairedEndBam = FALSE) {
   regex <- paste("\\.", types, collapse = "|", sep = "")
   # Find files in multiple dirs in correct order
