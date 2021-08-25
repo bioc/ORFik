@@ -119,7 +119,7 @@ STAR.align.folder(conf["fastq RNA-seq"], conf["bam RNA-seq"], index,
 # Create experiment (Starting point if alignment is finished)
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
 library(ORFik)
-create.experiment(paste0(conf["bam Ribo-seq"], "/aligned/"),
+create.experiment(file.path(conf["bam Ribo-seq"], "aligned/"),
                   exper = conf["exp Ribo-seq"],
                   fa = annotation["genome"],
                   txdb = paste0(annotation["gtf"], ".db"),
@@ -127,7 +127,7 @@ create.experiment(paste0(conf["bam Ribo-seq"], "/aligned/"),
                   pairedEndBam = paired.end.rfp,
                   rep = c(1,2,3,1,2,3),
                   condition = rep(c("CO", "WT"), each = 3))
-create.experiment(paste0(conf["bam RNA-seq"], "/aligned/"),
+create.experiment(file.path(conf["bam RNA-seq"], "aligned/"),
                   exper = conf["exp RNA-seq"],
                   fa = annotation["genome"],
                   txdb = paste0(annotation["gtf"], ".db"),
@@ -139,7 +139,10 @@ create.experiment(paste0(conf["bam RNA-seq"], "/aligned/"),
 library(ORFik)
 df.rfp <- read.experiment("Alexaki_Human_Ribo-seq")
 df.rna <- read.experiment("Alexaki_Human_RNA-seq")
-list.experiments() # Show all experiments you have made with ORFik 
+# Show all experiments you have made with ORFik so far 
+list.experiments()
+# Show all annotations you have made with ORFik so far 
+list.genomes()
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
 # Convert files and run Annotation vs alignment QC
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
@@ -175,16 +178,20 @@ heatMapRegion(df.rfp, region = c("TIS", "TTS"), shifting = "5prime", type = "psh
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
 # Count table analysis: TE tables
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
+# Shifting looks good, let's make count tables of pshifted libraries:
+# As a note: Correlation between count tables of pshifted vs raw libs is ~ 40% usually.
+countTable_regions(df.rfp, lib.type = "pshifted", rel.dir = "pshifted")
+
 # TE per library match
-countsRFP <- countTable(df.rfp, region = "cds", type = "fpkm", collapse = FALSE)
+countsRFP <- countTable(df.rfp, region = "cds", type = "fpkm", collapse = FALSE, count.folder = "pshifted")
 countsRNA <- countTable(df.rna, region = "mrna", type = "fpkm", collapse = FALSE)
 countsTE <- (countsRFP + 1) / (countsRNA + 1) # with pseudo count
-# TE per condition (WT vs CO)
-countsRFP <- countTable(df.rfp, region = "cds", type = "fpkm", collapse = TRUE)
+# TE per condition (WT vs CO) (collapse replicates)
+countsRFP <- countTable(df.rfp, region = "cds", type = "fpkm", collapse = TRUE, count.folder = "pshifted")
 countsRNA <- countTable(df.rna, region = "mrna", type = "fpkm", collapse = TRUE)
 countsTE <- (countsRFP + 1) / (countsRNA + 1) # with pseudo count
 # TE merged all libraries
-countsRFP <- countTable(df.rfp, region = "cds", type = "fpkm", collapse = "all")
+countsRFP <- countTable(df.rfp, region = "cds", type = "fpkm", collapse = "all", count.folder = "pshifted")
 countsRNA <- countTable(df.rna, region = "mrna", type = "fpkm", collapse = "all")
 countsTE <- (countsRFP + 1) / (countsRNA + 1) # with pseudo count
 
@@ -200,7 +207,11 @@ gene_names <- txNamesToGeneNames(significant_genes$id, df.rfp)
 # It does, good good.
 # How is it regulated ?
 significant_genes[which(gene_names == "ENSG00000101981"),] # By mRNA abundance
-
+# If you downloaded the full libraries, do this to use pshifted libraries instead.
+# Not a valid result for pshifted libraries using subset
+res <- DTEG.analysis(df.rfp, df.rna, design = "condition", 
+                     RFP_counts = countTable(df.rfp, region = "cds", type = "summarized",
+                                             count.folder = "pshifted"))
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
 # Peak detection (strong peaks in CDS)
 #¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤#
@@ -226,7 +237,7 @@ dt <- computeFeatures(cds,
                 grl.is.sorted = TRUE, faFile = df.rfp,
                 weight.RFP = "score", weight.RNA = "score",
                 riboStart = 21, uorfFeatures = FALSE)
-# The 8 remaining significant DTEGs.
+# The significant DTEGs.
 dt[names(cds) %in%  significant_genes$id,]
 # All genes with strong 3nt periodicity of Ribo-seq
 dt[ORFScores > 5,]
