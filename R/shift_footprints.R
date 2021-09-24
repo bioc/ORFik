@@ -114,9 +114,9 @@ shiftFootprints <- function(footprints, shifts, sort = TRUE) {
 #' codons. Default FASLE. Only use if there exists 3' UTRs for the annotation.
 #' If peridicity around stop codon is stronger than at the start codon, use
 #' stop instead of start region for p-shifting.
-#' @param top_tx (integer), default 10. Specify which \% of the top covered by RiboSeq
-#' reads transcripts to use for estimation of the shifts. By default we take top 10%
-#' top covered transcripts as they represent less noisy dataset. This is only
+#' @param top_tx (integer), default 10. Specify which \% of the top TIS coverage
+#' transcripts to use for estimation of the shifts. By default we take top 10%
+#' top covered transcripts as they represent less noisy data-set. This is only
 #' applicable when there are more than 1000 transcripts.
 #' @inheritParams filterTranscripts
 #' @param txNames a character vector of subset of CDS to use. Default:
@@ -132,9 +132,11 @@ shiftFootprints <- function(footprints, shifts, sort = TRUE) {
 #' your own version. Example: extendLeaders(tx, 30)
 #' Where 30 bases will be new "leaders". Since each original transcript was
 #' either only CDS or non-coding (filtered out).
-#' @param min_reads default (1000), how many reads must a read-length have to
-#' be considered for periodicity.
-#' @param accepted.lengths accepted readlengths, default 26:34, usually ribo-seq
+#' @param min_reads default (1000), how many reads must a read-length have in total
+#' to be considered for periodicity.
+#' @param min_reads_TIS default (50), how many reads must a read-length have in the
+#' TIS region to be considered for periodicity.
+#' @param accepted.lengths accepted read lengths, default 26:34, usually ribo-seq
 #' is strongest between 27:32.
 #' @inheritParams footprints.analysis
 #' @param must.be.periodic logical TRUE, if FALSE will not filter on
@@ -191,7 +193,7 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
   top_tx = 10L, minFiveUTR = 30L, minCDS = 150L,
   minThreeUTR = if (stop) {30} else NULL,
   txNames = filterTranscripts(txdb, minFiveUTR, minCDS, minThreeUTR),
-  firstN = 150L, tx = NULL, min_reads = 1000, accepted.lengths = 26:34,
+  firstN = 150L, tx = NULL, min_reads = 1000, min_reads_TIS = 50, accepted.lengths = 26:34,
   heatmap = FALSE, must.be.periodic = TRUE, strict.fft = TRUE, verbose = FALSE) {
 
   txdb <- loadTxdb(txdb)
@@ -220,7 +222,14 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
   if (nrow(tab) == 0) stop("No valid read lengths found with",
                             " accepted.lengths and counts > min_reads")
   cds <- cds[countOverlapsW(cds, footprints, "score") > 0]
-  if (verbose) message("Number of CDSs used for p-site detection: ", length(cds))
+  if (verbose) {
+    message("-------------------")
+    message("Number of CDSs used for p-site detection: ", length(cds))
+    message("-------------------")
+    message("Distribution of read lengths with reads count > min_reads:")
+    print(tab)
+    message("-------------------")
+  }
   top_tx <- percentage_to_ratio(top_tx, cds)
   if (must.be.periodic) {
     periodicity <- windowPerReadLength(cds, tx, footprints,
@@ -237,6 +246,11 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
     stop(paste("Library contained no periodic or accepted read-lengths,",
          "check your library. Are you using the correct genome?",
          "Is this Ribo-seq?"))
+  if (verbose) {
+    message("Periodic read lengths:")
+    print(validLengths)
+  }
+
   # find shifts
   if (start) {
     rw <- windowPerReadLength(cds, tx, footprints, pShifted,
@@ -246,14 +260,27 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
     rw[, sum.count := sum(count), by = genes]
     rw <- rw[sum.count >= quantile(sum.count, top_tx), ]
     rw <- coverageScorings(rw, scoring = "sum")
-    footprints.analysis(rw, heatmap)
+    rw[, frac.score := sum(score), by = fraction]
+
     if (verbose) {
+      message("-------------------")
+      message("Coverage of TIS region per read length before filtering")
+      print(rw[, .(TIS_region_counts = unique(frac.score)), by = fraction])
       message("-------------------")
       message("Change point analysis (start): ups (upstream window score), downs (downstream window score)")
     }
+    rw <- rw[frac.score > min_reads_TIS, ]
+    if (nrow(rw) == 0) {
+        stop(paste("Library contained no periodic or accepted read-lengths,",
+                   "reason: Not enough reads in TIS region.",
+                   "check your library. Are you using the correct genome?",
+                   "Is this Ribo-seq?"))
+    }
+    footprints.analysis(rw, heatmap)
     offset <- rw[, .(offsets_start = changePointAnalysis(score, info = unique(fraction),
                                                          verbose = verbose)),
                  by = fraction]
+    validLengths <- offset$fraction
   }
   if (stop & !is.null(minThreeUTR)) {
     threeUTRs <- loadRegion(txdb, "trailers", names.keep = txNames)
@@ -263,11 +290,16 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
                               scoring = "sum")
     footprints.analysis(rw, heatmap, region = "start of 3' UTR")
     if (nrow(offset) == 0) {
-      offset <- rw[, .(offsets_stop = changePointAnalysis(score, "stop")),
+      offset <- rw[, .(offsets_stop = changePointAnalysis(score, "stop",
+                                                          info = unique(fraction),
+                                                          verbose = verbose)),
                    by = fraction]
-    } else offset$offsets_stop <- rw[, .(changePointAnalysis(score, "stop")),
+    } else offset$offsets_stop <- rw[, .(changePointAnalysis(score, "stop",
+                                                             info = unique(fraction),
+                                                             verbose = verbose)),
                                      by = fraction]$V1
   }
+  if (nrow(offset) == 0) message("No offsets found, run with verbose = TRUE, to see why.")
 
   return(offset)
 }
@@ -294,9 +326,7 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
 #' The wig format version can be used in IGV, the score column is counts of that
 #' read with that read length, the cigar reference width is lost,
 #' ofst is much faster to save and load in R, and retain cigar reference width,
-#' but can not be used in IGV. \cr You can also do bedoc format, bed format
-#' keeping cigar: \code{\link{export.bedoc}}. bedoc is usually not used for
-#' p-shifting.
+#' but can not be used in IGV. \cr Also for larger tracks, you can use "bigWig".
 #' @param BPPARAM how many cores/threads to use? default: bpparam()
 #' @param log logical, default (TRUE), output a log file with parameters used and
 #' a .rds file with all shifts per library
@@ -318,9 +348,8 @@ detectRibosomeShifts <- function(footprints, txdb, start = TRUE, stop = FALSE,
 #' @examples
 #' df <- ORFik.template.experiment()
 #' df <- df[3,] #lets only p-shift RFP sample at index 3
-#' ## If you want to check it in IGV do:
+#' ## Output files as both .ofst and .wig(can be viewed in IGV/UCSC)
 #' shiftFootprintsByExperiment(df)
-#' # Then use the .wig files that are created, which are readable in IGV.
 #' # If you only need in R, do: (then you get no .wig files)
 #' #shiftFootprintsByExperiment(df, output_format = "ofst")
 #' ## With debug info:
@@ -337,7 +366,8 @@ shiftFootprintsByExperiment <- function(df,
                                         top_tx = 10L, minFiveUTR = 30L,
                                         minCDS = 150L,
                                         minThreeUTR = if (stop) {30} else NULL,
-                                        firstN = 150L, min_reads = 1000,
+                                        firstN = 150L,
+                                        min_reads = 1000, min_reads_TIS = 50,
                                         accepted.lengths = 26:34,
                                         output_format = c("ofst", "wig"),
                                         BPPARAM = bpparam(), tx = NULL,
@@ -348,8 +378,8 @@ shiftFootprintsByExperiment <- function(df,
   path <- out.dir
   dir.create(path, showWarnings = FALSE, recursive = TRUE)
   if (!dir.exists(path)) stop(paste("out.dir", out.dir, "does not exist!"))
-  if (!any(c("bed", "bedo", "wig", "ofst") %in% output_format))
-    stop("output_format allowed bed, bedo, wig or ofst")
+  if (!any(c("bed", "bedo", "wig", "ofst", "bigWig") %in% output_format))
+    stop("output_format allowed: bed, bedo, wig, bigWig or ofst")
   rfpFiles <- filepath(df, "ofst") # If ofst file not present, uses bam file
   if (!is.null(shift.list)) {
     if (!all(names(shift.list) %in% rfpFiles))
@@ -366,8 +396,9 @@ shiftFootprintsByExperiment <- function(df,
   shifts <- bplapply(rfpFiles,
            FUN = function(file, path, df, start, stop,
                           top_tx, minFiveUTR, minCDS, minThreeUTR,
-                          firstN, min_reads, accepted.lengths,
-                          output_format, heatmap, tx, shift.list,
+                          firstN, min_reads, min_reads_TIS,
+                          accepted.lengths, output_format,
+                          heatmap, tx, shift.list,
                           must.be.periodic, txNames, strict.fft,
                           verbose = verbose
                           ) {
@@ -381,7 +412,7 @@ shiftFootprintsByExperiment <- function(df,
                                      minFiveUTR = minFiveUTR,
                                      minCDS = minCDS, minThreeUTR = minThreeUTR,
                                      txNames = txNames, firstN = firstN,
-                                     min_reads = min_reads,
+                                     min_reads = min_reads, min_reads_TIS = min_reads_TIS,
                                      accepted.lengths = accepted.lengths,
                                      heatmap = heatmap, tx = tx,
                                      must.be.periodic = must.be.periodic,
@@ -409,12 +440,23 @@ shiftFootprintsByExperiment <- function(df,
     if ("wig" %in% output_format) {
       export.wiggle(shifted, paste0(name, "_pshifted.wig"))
     }
+    if ("bigWig" %in% output_format) {
+      if (anyNA(seqlengths(shifted))) {
+        seqinfo(shifted) <- seqinfo(findFa(df))[seqlevels(shifted),]
+      }
+      if (anyNA(seqlengths(shifted))) {
+        seqinfo(shifted) <- seqinfo(loadTxdb(df))[seqlevels(shifted),]
+      }
+      if (!anyNA(seqlengths(shifted))) {
+        export.bigWig(shifted, paste0(name, "_pshifted.bigWig"))
+      } else warning("Could not export bigWig, reads does not have defined seqlengths!")
+    }
 
     return(shifts)
   }, path = path, df = df, start = start, stop = stop,
      top_tx = top_tx, minFiveUTR = minFiveUTR,
      minCDS = minCDS, minThreeUTR = minThreeUTR,
-     firstN = firstN, min_reads = min_reads,
+     firstN = firstN, min_reads = min_reads, min_reads_TIS = min_reads_TIS,
      accepted.lengths = accepted.lengths, output_format = output_format,
      heatmap = heatmap, must.be.periodic = must.be.periodic,
      strict.fft = strict.fft, verbose = verbose, tx = tx,
@@ -455,7 +497,7 @@ shiftFootprintsByExperiment <- function(df,
 #' @param type character, default "bar". Plot as faceted bars,
 #' gives more detailed information of read lengths,
 #' but harder to see patterns over multiple read lengths.
-#' Alternative: "heatmaps", better overview of patterns over
+#' Alternative: "heatmap", better overview of patterns over
 #' multiple read lengths.
 #' @param title Title for top of plot, default "Ribo-seq".
 #' A more informative name could be "Ribo-seq zebrafish Chew et al. 2013"

@@ -7,12 +7,9 @@
 #' @keywords internal
 QC_count_tables <- function(df, out.dir, type = "ofst",
                             BPPARAM = bpparam()) {
-  txdb <- loadTxdb(df)
-  loadRegions(txdb, parts = c("mrna", "leaders", "cds", "trailers", "tx"))
-  outputLibs(df, leaders, type = type, BPPARAM = BPPARAM)
-  libs <- bamVarName(df)
-  # Update this to use correct
-  convertLibs(df, NULL) # Speedup by reducing unwanted information
+  outputLibs(df, findFa(df), type = type, BPPARAM = BPPARAM)
+  # TODO: test if needed
+  suppressMessages(convertLibs(df, NULL)) # Speedup by reducing unwanted information
 
   # Make count tables
   message("--------------------------")
@@ -20,18 +17,36 @@ QC_count_tables <- function(df, out.dir, type = "ofst",
                                 longestPerGene = FALSE,
                                 out.dir = out.dir, lib.type = type,
                                 BPPARAM = BPPARAM)
+  return(invisible(NULL))
+}
+
+#' Create alignment feature statistcs
+#'
+#' Among others how much reads are in mRNA, introns, intergenic,
+#' and check of reads from rRNA and other ncRNAs.
+#' The better the annotation / gtf used, the more results you get.
+#' @inheritParams outputLibs
+#' @inheritParams QCreport
+#' @return a data.table of the statistcs
+#' @keywords internal
+alignmentFeatureStatistics <- function(df, type = "ofst",
+                                       BPPARAM = bpparam()) {
+  message("--------------------------")
+  message("Making alignment statistics for lib:")
   # Special regions rRNA etc..
   types <- c()
   # TODO: Check if there is a way to get this from txdb directly
+  txdb <- loadTxdb(df)
+  fa <- findFa(df)
+  outputLibs(df, fa, type = type, BPPARAM = BPPARAM)
   gff.df <- importGtfFromTxdb(txdb, stop.error = FALSE)
   if (is.null(gff.df)) warnings("No biotypes defined in GTF,",
                                 " skiping biotype analysis!")
   types <- unique(gff.df$transcript_biotype)
+  # The ncRNAs regions to check
   types <-types[types %in% c("Mt_rRNA", "snRNA", "snoRNA", "lincRNA", "miRNA",
                              "rRNA", "Mt_rRNA", "ribozyme", "Mt_tRNA")]
-  # Put into csv, the standard stats
-  message("--------------------------")
-  message("Making alignment statistics for lib:")
+
   # Helper function, sum countOverlaps with weight
   sCo <- function(region, lib) {
     weight <- "score"
@@ -39,42 +54,74 @@ QC_count_tables <- function(df, out.dir, type = "ofst",
       weight <- NULL
     return(sum(countOverlapsW(region, lib, weight = weight)))
   }
-  finals <- bplapply(libs, function(s, dt_list, sCo, tx, gff.df, libs) {
+  tx <- loadRegion(txdb, "tx")
+  mrna <- loadRegion(txdb, "mrna")
+  cds <- loadRegion(txdb, "cds")
+  leaders <- loadRegion(txdb, "leaders")
+  trailers <- loadRegion(txdb, "trailers")
+  introns <- loadRegion(txdb, "introns")
+  libs <- bamVarName(df)
+  finals <- bplapply(libs, function(s, sCo, tx, gff.df, libs) {
     message(s)
     lib <- get(s)
     # Raw stats
+    aligned_reads <- ifelse(!is.null(mcols(lib)$score),
+                            sum(mcols(lib)$score), length(lib))
     res <- data.frame(Sample = s, Raw_reads = as.numeric(NA),
                       Trimmed_reads = as.numeric(NA),
-                      Aligned_reads = length(lib))
+                      Aligned_reads = aligned_reads)
     res$percentage_aligned_raw = 100 * (res$Aligned_reads / res$Raw_reads)
 
     # mRNA region stats
-    index <- which(s == libs)
-    res_mrna <- data.table(mRNA = colSums(assay(dt_list[["mrna"]]))[index],
-                           LEADERS = colSums(assay(dt_list[["leaders"]]))[index],
-                           CDS = colSums(assay(dt_list[["cds"]]))[index],
-                           TRAILERs = colSums(assay(dt_list[["trailers"]]))[index])
-    res_mrna[,percentage_mrna_aligned := round(100* (mRNA / res$Aligned_reads), 6)]
-    res_mrna[,ratio_cds_mrna := round(CDS / mRNA, 6)]
-    res_mrna[, ratio_cds_leader := round(CDS / LEADERS, 6)]
+    tx_reads <- findOverlaps(lib, tx)
+    tx_reads_indices <- unique(from(tx_reads))
+    tx_reads_total <- sum(mcols(lib)$score[tx_reads_indices])
+    mRNA_reads <- findOverlaps(lib, mrna)
+    mRNA_reads_indices <- unique(from(mRNA_reads))
+    mRNA_reads_total <- sum(mcols(lib)$score[mRNA_reads_indices])
+    mRNA_proportion_covered <- length(unique(to(mRNA_reads)))
+    # ncRNA, Intronic and intergenic are only using count not aligning to a mrna / transcript
+    ncRNA_reads <- findOverlaps(lib, tx[!(names(tx) %in% names(mrna))])
+    ncRNA_reads_total <- sum(mcols(lib)$score[unique(from(ncRNA_reads[!(from(ncRNA_reads) %in% mRNA_reads_indices)]))])
+
+    intronic_reads <- findOverlaps(lib, introns)
+    intronic_reads_total <- sum(mcols(lib)$score[unique(from(intronic_reads[!(from(intronic_reads) %in% tx_reads_indices)]))])
+    intergenic_reads_total <- sum(mcols(lib[-unique(c(tx_reads_indices, unique(from(intronic_reads))))])$score)
+
+    res_mrna <- data.table(mRNA = mRNA_reads_total,
+                           LEADERS = sum(mcols(lib)$score[unique(from(findOverlaps(lib, leaders)))]),
+                           CDS = sum(mcols(lib)$score[unique(from(findOverlaps(lib, cds)))]),
+                           TRAILERs = sum(mcols(lib)$score[unique(from(findOverlaps(lib, trailers)))]),
+                           Transcript = tx_reads_total,
+                           ncRNA = ncRNA_reads_total,
+                           Introns = intronic_reads_total,
+                           Intergenic = intergenic_reads_total)
+
+    res_mrna[,percentage_mrna_aligned := round(100* (mRNA / res$Aligned_reads), 2)]
+    res_mrna[,percentage_tx_aligned := round(100* (Transcript / res$Aligned_reads), 2)]
+    res_mrna[,ratio_cds_mrna := round(CDS / mRNA, 2)]
+    res_mrna[, ratio_cds_leader := round(CDS / LEADERS, 2)]
 
     # Special region stats
-    numbers <- sCo(tx, lib)
+    numbers <- c()
     for (t in types) {
       valids <- gff.df[grep(x = gff.df$transcript_biotype, pattern = t)]
       numbers <- c(numbers, sCo(tx[unique(valids$transcript_id)], lib))
     }
 
-    res_extra <- data.frame(matrix(numbers, nrow = 1))
-    colnames(res_extra) <- c("All_tx_types", types)
-
     # Lib width distribution, after soft.clip
     widths <- round(summary(readWidths(lib)))
     res_widths <- data.frame(matrix(widths, nrow = 1))
     colnames(res_widths) <- paste(names(widths), "read length")
-    cbind(res, res_widths, res_mrna, res_extra)
-  }, dt_list = dt_list, sCo = sCo, tx = tx, gff.df = gff.df,
-     libs = libs, BPPARAM = BPPARAM)
+    res_final <- cbind(res, res_widths, res_mrna)
+    if (length(numbers) > 0) {
+      res_extra <- data.frame(matrix(numbers, nrow = 1))
+      colnames(res_extra) <- c(types)
+      res_final <- cbind(res_final, res_extra)
+    }
+    return(res_final)
+  }, sCo = sCo, tx = tx, gff.df = gff.df,
+  libs = libs, BPPARAM = BPPARAM)
 
   return(rbindlist(finals))
 }

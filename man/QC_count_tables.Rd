@@ -11,12 +11,17 @@ QC_count_tables(df, out.dir, type = "ofst", BPPARAM = bpparam())
 
 \item{out.dir}{optional output directory, default:
 \code{dirname(df$filepath[1])}.
-Will make a folder called "QC_STATS" with all results in this directory.}
+Will make a folder called "QC_STATS" with all results in this directory.
+Warning: If you assign not default path, you will have a hazzle to load files later.
+Much easier to load count tables, statistics, ++ later with default.}
 
 \item{type}{a character(default: "default"), load files in experiment
 or some precomputed variant, either "ofst", "bedo", "bedoc" or "pshifted".
 These are made with ORFik:::convertLibs() or shiftFootprintsByExperiment().
-Can also be custom user made folders inside the experiments bam folder.}
+Can also be custom user made folders inside the experiments bam folder.
+It acts in a recursive manner with priority: If you state "pshifted",
+but it does not exist, it checks "ofst". If no .ofst files, it uses
+"default", which always exists.}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam().
 To see number of threads used, do \code{bpparam()$workers}.

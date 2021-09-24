@@ -15,6 +15,7 @@ shiftFootprintsByExperiment(
   minThreeUTR = if (stop) {     30 } else NULL,
   firstN = 150L,
   min_reads = 1000,
+  min_reads_TIS = 50,
   accepted.lengths = 26:34,
   output_format = c("ofst", "wig"),
   BPPARAM = bpparam(),
@@ -42,9 +43,9 @@ codons. Default FASLE. Only use if there exists 3' UTRs for the annotation.
 If peridicity around stop codon is stronger than at the start codon, use
 stop instead of start region for p-shifting.}
 
-\item{top_tx}{(integer), default 10. Specify which \% of the top covered by RiboSeq
-reads transcripts to use for estimation of the shifts. By default we take top 10%
-top covered transcripts as they represent less noisy dataset. This is only
+\item{top_tx}{(integer), default 10. Specify which \% of the top TIS coverage
+transcripts to use for estimation of the shifts. By default we take top 10%
+top covered transcripts as they represent less noisy data-set. This is only
 applicable when there are more than 1000 transcripts.}
 
 \item{minFiveUTR}{(integer) minimum bp for 5' UTR during filtering for the
@@ -60,10 +61,13 @@ transcripts. Set to NULL if no 3' UTRs exists for annotation.}
 downstream of start codons to use for initial estimation of the
 periodicity.}
 
-\item{min_reads}{default (1000), how many reads must a read-length have to
-be considered for periodicity.}
+\item{min_reads}{default (1000), how many reads must a read-length have in total
+to be considered for periodicity.}
 
-\item{accepted.lengths}{accepted readlengths, default 26:34, usually ribo-seq
+\item{min_reads_TIS}{default (50), how many reads must a read-length have in the
+TIS region to be considered for periodicity.}
+
+\item{accepted.lengths}{accepted read lengths, default 26:34, usually ribo-seq
 is strongest between 27:32.}
 
 \item{output_format}{default c("ofst", "wig"), use export.ofst or
@@ -71,9 +75,7 @@ wiggle format (wig) using \code{\link{export.wiggle}} ? Default is both.
 The wig format version can be used in IGV, the score column is counts of that
 read with that read length, the cigar reference width is lost,
 ofst is much faster to save and load in R, and retain cigar reference width,
-but can not be used in IGV. \cr You can also do bedoc format, bed format
-keeping cigar: \code{\link{export.bedoc}}. bedoc is usually not used for
-p-shifting.}
+but can not be used in IGV. \cr Also for larger tracks, you can use "bigWig".}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam()}
 
@@ -136,9 +138,8 @@ read lengths, for human, mouse etc, normally around 27:30.
 \examples{
 df <- ORFik.template.experiment()
 df <- df[3,] #lets only p-shift RFP sample at index 3
-## If you want to check it in IGV do:
+## Output files as both .ofst and .wig(can be viewed in IGV/UCSC)
 shiftFootprintsByExperiment(df)
-# Then use the .wig files that are created, which are readable in IGV.
 # If you only need in R, do: (then you get no .wig files)
 #shiftFootprintsByExperiment(df, output_format = "ofst")
 ## With debug info:

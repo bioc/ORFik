@@ -11,7 +11,8 @@ outputLibs(
   param = NULL,
   strandMode = 0,
   naming = "minimum",
-  envir = .GlobalEnv,
+  output.mode = "envir",
+  envir = envExp(df),
   BPPARAM = bpparam()
 )
 }
@@ -28,7 +29,10 @@ Like: c("NCBI", "UCSC") -> pick "NCBI"}
 \item{type}{a character(default: "default"), load files in experiment
 or some precomputed variant, either "ofst", "bedo", "bedoc" or "pshifted".
 These are made with ORFik:::convertLibs() or shiftFootprintsByExperiment().
-Can also be custom user made folders inside the experiments bam folder.}
+Can also be custom user made folders inside the experiments bam folder.
+It acts in a recursive manner with priority: If you state "pshifted",
+but it does not exist, it checks "ofst". If no .ofst files, it uses
+"default", which always exists.}
 
 \item{param}{\code{NULL} or a \link[Rsamtools]{ScanBamParam} object.
     Like for \code{\link[Rsamtools]{scanBam}}, this influences what fields
@@ -62,14 +66,21 @@ transcripts in opposite directions.}
 information needed to make all files unique. Set to "full" to get full
 names.}
 
-\item{envir}{environment to save to, default (.GlobalEnv)}
+\item{output.mode}{character, default "envir". Output libraries to environment.
+Alternative: "list", return as list. "envirlist", output to envir and return
+as list. If output is list format, the list elements are named from:
+\code{bamVarName(df.rfp)} (Full or minimum naming based on 'naming' argument)}
+
+\item{envir}{environment to save to, default
+\code{envExp(df)}, which defaults to .GlobalEnv}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam().
 To see number of threads used, do \code{bpparam()$workers}.
 You can also add a time remaining bar, for a more detailed pipeline.}
 }
 \value{
-NULL (libraries set by envir assignment)
+NULL (libraries set by envir assignment), unless output.mode is
+"list" or "envirlist": Then you get a list of the libraries.
 }
 \description{
 By default loads the original files of the experiment into
@@ -88,8 +99,14 @@ df <- ORFik.template.experiment()
 ## .wig file load, if wiggle files does not exists
 ## it will load default
 # outputLibs(df, type = "wig")
-## Load libs to new environment (called ORFik)
+## Load as list
+outputLibs(df, output.mode = "list")
+## Load libs to new environment (called ORFik in Global)
 # outputLibs(df, envir = assign(df@experiment, new.env(parent = .GlobalEnv)))
+## Load to hidden environment given by experiment
+# envExp(df) <- new.env()
+# outputLibs(df)
+
 }
 \seealso{
 Other ORFik_experiment: 
@@ -99,7 +116,7 @@ Other ORFik_experiment:
 \code{\link{experiment-class}},
 \code{\link{filepath}()},
 \code{\link{libraryTypes}()},
-\code{\link{organism.df}()},
+\code{\link{organism,experiment-method}},
 \code{\link{read.experiment}()},
 \code{\link{save.experiment}()},
 \code{\link{validateExperiments}()}

@@ -183,6 +183,45 @@ readWig <- function(path, chrStyle = NULL) {
   return(matchSeqStyle(c(forward, reverse), chrStyle))
 }
 
+#' Custom bigWig reader
+#'
+#' Given 2 bigWig files (.bw, .bigWig), first is forward second is reverse.
+#' Merge them and return as GRanges object.
+#' If they contain name reverse and forward, first and second order
+#' does not matter, it will search for forward and reverse.
+#'
+#' @param path a character path to two .bigWig files, or a data.table
+#' with 2 columns, (forward, filepath) and reverse, only 1 row.
+#' @inheritParams matchSeqStyle
+#' @importFrom rtracklayer import.bw
+#' @return a \code{\link{GRanges}} object of the file/s
+#' @family utils
+#'
+readBigWig <- function(path, chrStyle = NULL) {
+  if (is(path, "character")) {
+    if (length(path) != 2) stop("readWig must have 2 wig files,
+                              one forward strand and one reverse!")
+
+    forwardPath <- grep("forward|fwd", path)
+    reversePath <- grep("reverse|rev", path)
+    if (length(forwardPath) == 1 & length(reversePath) == 1){
+      forwardIndex <- forwardPath
+      reverseIndex <- reversePath
+    }
+
+    forward <- import.bw(path[forwardIndex])
+    reverse <- import.bw(path[reverseIndex])
+  } else if (is(path, "data.table")) {
+    if (!is.null(path$forward)) {
+      forward <- import.bw(path$forward)
+    } else forward <- import.wig(path$filepath)
+    reverse <- import.bw(path$reverse)
+  }
+  strand(forward) <- "+"
+  strand(reverse) <- "-"
+  return(matchSeqStyle(c(forward, reverse), chrStyle))
+}
+
 #' Load GRanges object from .bedo
 #'
 #' .bedo is .bed ORFik, an optimized bed format for coverage reads with read lengths
@@ -252,6 +291,8 @@ import.bedoc <- function(path) {
 #' Import with import.ofst
 #' @param file a path to a .ofst file
 #' @inheritParams readBam
+#' @param seqinfo Seqinfo object, defaul NULL (created from ranges).
+#' Add to avoid warnings later on differences in seqinfo.
 #' @return a GAlignment, GAlignmentPairs or GRanges object,
 #' dependent of if cigar/cigar1 is defined in .ofst file.
 #' @importFrom fst read_fst
@@ -268,23 +309,24 @@ import.bedoc <- function(path) {
 #' ga <- ORFik:::getGAlignments(df)
 #' # export.ofst(ga, file = tmp)
 #' # import.ofst(tmp)
-import.ofst <- function(file, strandMode = 0) {
+import.ofst <- function(file, strandMode = 0, seqinfo = NULL) {
   df <- read_fst(file)
   if ("cigar" %in% colnames(df)) {
-    getGAlignments(df)
+    getGAlignments(df, seqinfo = seqinfo)
   } else if ("cigar1" %in% colnames(df)) {
-    getGAlignmentsPairs(df, strandMode)
-  } else getGRanges(df)
+    getGAlignmentsPairs(df, strandMode = strandMode, seqinfo = seqinfo)
+  } else getGRanges(df, seqinfo = seqinfo)
 }
 
 #' Load any type of sequencing reads
 #'
-#' Wraps around rtracklayer::import and tries to speed up loading with the
+#' Wraps around ORFik file format loaders and rtracklayer::import
+#' and tries to speed up loading with the
 #' use of data.table. Supports gzip, gz, bgz compression formats.
 #' Also safer chromosome naming with the argument chrStyle
 #'
-#' NOTE: For wig you can send in 2 files, so that it automaticly merges
-#' forward and reverse stranded objects. You can also just send 1 wig file,
+#' NOTE: For wig/bigWig files you can send in 2 files, so that it automatically
+#' merges forward and reverse stranded objects. You can also just send 1 wig/bigWig file,
 #' it will then have "*" as strand.
 #' @param path a character path to file (1 or 2 files),
 #'  or data.table with 2 colums(forward&reverse)
@@ -345,6 +387,8 @@ fimport <- function(path, chrStyle = NULL, param = NULL, strandMode = 0) {
           return(readWig(path, chrStyle))
         } else if (all(fext %in% c("bam"))) {
           return(readBam(path, chrStyle, param, strandMode))
+        } else if (all(fext %in% c("bigWig", "bw"))) {
+          return(readBigWig(path, chrStyle))
         } else stop("only wig and valid bam format allowed for 2 files input!")
       } else if (length(path) == 1) { # Only 1 file path given
         if (fext == "bam") {
@@ -392,6 +436,7 @@ fimport <- function(path, chrStyle = NULL, param = NULL, strandMode = 0) {
 #' findFa(path)
 #'
 findFa <- function(faFile) {
+  if (is.list(faFile)) faFile <- faFile[[1]]
   if (is.character(faFile)) {
     if (file.exists(faFile)) {
       return(FaFile(faFile))

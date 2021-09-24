@@ -31,11 +31,13 @@ Other utils:
 \code{\link{bedToGR}()},
 \code{\link{convertToOneBasedRanges}()},
 \code{\link{export.bed12}()},
+\code{\link{export.bigWig}()},
 \code{\link{export.wiggle}()},
 \code{\link{fimport}()},
 \code{\link{findFa}()},
 \code{\link{fread.bed}()},
 \code{\link{optimizeReads}()},
-\code{\link{readBam}()}
+\code{\link{readBam}()},
+\code{\link{readBigWig}()}
 }
 \concept{utils}

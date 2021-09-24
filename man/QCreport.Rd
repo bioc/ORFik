@@ -8,6 +8,7 @@ QCreport(
   df,
   out.dir = dirname(df$filepath[1]),
   plot.ext = ".pdf",
+  create.ofst = TRUE,
   BPPARAM = bpparam()
 )
 }
@@ -16,9 +17,16 @@ QCreport(
 
 \item{out.dir}{optional output directory, default:
 \code{dirname(df$filepath[1])}.
-Will make a folder called "QC_STATS" with all results in this directory.}
+Will make a folder called "QC_STATS" with all results in this directory.
+Warning: If you assign not default path, you will have a hazzle to load files later.
+Much easier to load count tables, statistics, ++ later with default.}
 
-\item{plot.ext}{character, default: ".pdf". Alternatives: ".png" or ".jpg".}
+\item{plot.ext}{character, default: ".pdf". Alternatives: ".png" or ".jpg".
+Note that in pdf format the complex correlation plots become very slow to load!}
+
+\item{create.ofst}{logical, default TRUE. Create ".ofst" files from the input
+libraries, ofst is much faster to load in R, for later use. Stored
+in ./ofst/ folder relative to experiment main folder.}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam().
 To see number of threads used, do \code{bpparam()$workers}.
@@ -33,7 +41,8 @@ fastp and STAR log files
 combined with annotation to create relevant statistics.\cr\cr
 This report consists of several steps:\cr
 1. Convert bam file / Input files to ".ofst" format, if not already done.
-This format is around 400x faster to use in R than the bam format.\cr
+This format is around 400x faster to use in R than the bam format.
+Files are also outputted to R environment specified by \code{envExp(df)}\cr
 2. From this report you will get a summary csv table, with distribution of
 aligned reads and overlap counts over transcript regions like:
 leader, cds, trailer, lincRNAs, tRNAs, rRNAs, snoRNAs etc. It will be called

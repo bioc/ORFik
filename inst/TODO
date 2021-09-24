@@ -2,8 +2,11 @@ TODO
 -----------------------
     General:
     o Add more verbose outputs
+    o Add import/export for bigwig
+    o Make seqinfo be kept through the chain
+    o Make startCodon and stopCodon inherit all exon_ranks
 
-    CageSeq:
+    CAGE:
     o Add more statistics for user if wanted
 
     RiboSeq:
@@ -12,9 +15,13 @@ TODO
     OFST file format:
     o Implement ofst indexing of files
 
+    ORFik experiment:
+    o Fix very slow bamVarNames function
+
     Alignment:
     o Add genomeSAindexNbases 14 check to reduce to 10 if small
     o wrap fastp UMI and barcode demultiplexing
+    o Try to include download of tRNA-scan tRNA fasta files
 
     SRA Download:
     Test if it is possible to speed up EBI download even more
@@ -30,8 +37,10 @@ TODO
 
     QC
     o Add possibility for batch correction of correlation plots
+    o Add counts per group in DTEG analysis plots
 
     Coverage
     o Check if coverage might need a new "append.single"", to make sure each fraction gets a choice.
     o make sure remove.zero.dt, does not make any functions fail!
     o Add new add.flank.zero, to make max and min correct.
+    o Updated heatmapRegion to use remove.zero.dt as TRUE

@@ -19,7 +19,7 @@ invisible(NULL) (File is saved as 2 .wig files)
 \description{
 Will create 2 files, 1 for + strand (*_forward.wig)
 and 1 for - strand (*_reverse.wig). If all
-files are * stranded, will output 1 file.
+ranges are * stranded, will output 1 file.
 Can be direct input for ucsc browser or IGV
 }
 \examples{
@@ -34,11 +34,13 @@ Other utils:
 \code{\link{bedToGR}()},
 \code{\link{convertToOneBasedRanges}()},
 \code{\link{export.bed12}()},
+\code{\link{export.bigWig}()},
 \code{\link{fimport}()},
 \code{\link{findFa}()},
 \code{\link{fread.bed}()},
 \code{\link{optimizeReads}()},
 \code{\link{readBam}()},
+\code{\link{readBigWig}()},
 \code{\link{readWig}()}
 }
 \concept{utils}
