@@ -66,9 +66,9 @@ QCreport <- function(df, out.dir = dirname(df$filepath[1]),
   message("- Creating read length tables:")
   dt_read_lengths <- readLengthTable(df, output.dir = stats_folder)
   # Get count tables
-  QC_count_tables(df, out.dir, BPPARAM)
+  QC_count_tables(df, out.dir, BPPARAM = BPPARAM)
   # Alignment statistcs
-  finals <- alignmentFeatureStatistics(df, BPPARAM)
+  finals <- alignmentFeatureStatistics(df, BPPARAM = BPPARAM)
   # Do trimming detection
   finals <- trim_detection(df, finals, out.dir)
   # Save file
@@ -118,7 +118,7 @@ QCplots <- function(df, region = "mrna",
 
   correlation.plots(df, stats_folder, region, plot.ext = plot.ext)
   message("- PCA outlier plot:")
-  pcaExperiment(df, stats_folder)
+  pcaExperiment(df, stats_folder, plot.ext = plot.ext)
   # window coverage over mRNA regions
   message("- Meta coverage plots")
   txdb <- loadTxdb(df)
@@ -139,7 +139,8 @@ QCplots <- function(df, region = "mrna",
     transcriptWindow(GRangesList(), loadRegion(txdb, "cds", txNames),
                      GRangesList(), df = df, outdir = stats_folder,
                      scores = c("sum", "transcriptNormalized"),
-                     is.sorted = TRUE, BPPARAM = BPPARAM, windowSize = 100)
+                     is.sorted = TRUE, windowSize = 100, plot.ext = plot.ext,
+                     BPPARAM = BPPARAM)
     return(invisible(NULL))
   }
 
@@ -151,7 +152,8 @@ QCplots <- function(df, region = "mrna",
   transcriptWindow(leaders, get("cds", mode = "S4"),
                    trailers, df = df, outdir = stats_folder,
                    scores = c("sum", "transcriptNormalized"),
-                   is.sorted = TRUE, BPPARAM = BPPARAM)
+                   is.sorted = TRUE, plot.ext = plot.ext,
+                   BPPARAM = BPPARAM)
   # Plot all transcripts as 1 region
   # TODO: Make this safe enough to include for 32GB computers
   # message("  - whole transcripts")
