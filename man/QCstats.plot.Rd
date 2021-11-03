@@ -4,7 +4,7 @@
 \alias{QCstats.plot}
 \title{Make plot of ORFik QCreport}
 \usage{
-QCstats.plot(stats, output.dir = NULL, plot.ext = ".pdf")
+QCstats.plot(stats, output.dir = NULL, plot.ext = ".pdf", as_gg_list = FALSE)
 }
 \arguments{
 \item{stats}{the experiment object or path to custom ORFik QC folder where a file
@@ -14,9 +14,11 @@ called "STATS.csv" is located.}
 If defined saves plot to that directory with the name "/STATS_plot.pdf".}
 
 \item{plot.ext}{character, default: ".pdf". Alternatives: ".png" or ".jpg".}
+
+\item{as_gg_list}{return a list of ggplot objects. For more modification options.}
 }
 \value{
-ggplot object of the the statistics data
+the plot object, a grob of ggplot objects of the the statistics data
 }
 \description{
 From post-alignment QC relative to annotation, make a plot for all samples.
