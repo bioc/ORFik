@@ -119,10 +119,11 @@ experiment <- setClass("experiment",
                                   txdb = "character",
                                   fafile = "character",
                                   organism = "character",
+                                  assembly = "character",
                                   author = "character",
                                   expInVarName = "logical",
                                   envir = "environment"),
-                       contains = "DataFrame")
+                       contains = "DFrame")
 
 #' experiment show definition
 #'
