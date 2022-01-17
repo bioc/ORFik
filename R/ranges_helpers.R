@@ -83,7 +83,8 @@ makeORFNames <- function(grl, groupByTx = TRUE) {
 #' @param is.sorted logical (TRUE), grl is presorted
 #' (negative coordinates are decreasing). Set to FALSE if they are not,
 #' else output will most likely be wrong!
-#' @return a GRangesList grouped by original group, tiled to 1
+#' @return a GRangesList grouped by original group, tiled to 1. Groups with identical names
+#' will be merged.
 #' @importFrom S4Vectors DataFrame
 #' @export
 #' @family ExtendGenomicRanges
@@ -532,7 +533,7 @@ pmapFromTranscriptF <- function(x, transcripts, removeEmpty = FALSE) {
 #' For each GRanges object, find the sequence of it from faFile or BSgenome.
 #'
 #' A wrapper around \code{\link{extractTranscriptSeqs}} that works for
-#' ORFik \code{\link{experiment}} input.
+#' DNAStringSet and ORFik \code{\link{experiment}} input.
 #' For debug of errors do:
 #' which(!(unique(seqnamesPerGroup(grl, FALSE)) %in% seqlevels(faFile)))
 #' This happens usually when the grl contains chromsomes that the fasta
@@ -554,7 +555,18 @@ txSeqsFromFa <- function(grl, faFile, is.sorted = FALSE,
   if (!any(seqlevels(grl) %in% seqlevels(faFile)))
     stop("FaFile had no matching seqlevels to ranges object")
   if (!is.sorted) grl <- sortPerGroup(grl)
-  seqs <- extractTranscriptSeqs(faFile, transcripts = grl)
+
+  # Check for optimization, if conditions are met
+  path <- ifelse(is.character(faFile), faFile, ifelse(is(faFile, "FaFile"), faFile$path, ""))
+  if (path != "") {
+    if (file.size(path) < 1e7 & length(grl) > 50)
+      faFile <- readDNAStringSet(path)
+  }
+  if (is(faFile, "DNAStringSet")) {
+    seqs <- faFile[grl]
+  } else {
+    seqs <- extractTranscriptSeqs(faFile, transcripts = grl)
+  }
   if (!keep.names) return(as.character(seqs, use.names = FALSE))
   return(seqs)
 }
