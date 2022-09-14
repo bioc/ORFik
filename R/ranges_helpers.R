@@ -525,6 +525,7 @@ pmapFromTranscriptF <- function(x, transcripts, removeEmpty = FALSE) {
   result <- split(result, nIndices)
   names(result) <- names(transcripts)[temp]
   seqlevels(result) <- seqlevels(transcripts)
+  seqinfo(result) <- seqinfo(transcripts)
   return(result)
 }
 

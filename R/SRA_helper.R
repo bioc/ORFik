@@ -64,7 +64,9 @@ install.sratoolkit <- function(folder = "~/bin", version = "2.10.9") {
 #' a data.frame with SRA metadata information including the SRR numbers in a column called
 #' "Run" or "SRR". Can be SRR, ERR or DRR numbers.
 #' If only SRR numbers can not rename, since no additional information is given.
-#' @param outdir a string, default: cbu server
+#' @param outdir directory to store runs,
+#' files are named by default (rename = TRUE) by information from SRA metadata table,
+#' if (rename = FALSE) named according to SRR numbers.
 #' @param rename logical or character, default TRUE (Auto guess new names). False: Skip
 #' renaming. A character vector of equal size as files wanted can also be given.
 #' Priority of renaming from
@@ -90,6 +92,9 @@ install.sratoolkit <- function(folder = "~/bin", version = "2.10.9") {
 #' to use in download.file when using ebi ftp download. Sometimes "curl"
 #' is might not work (the default auto usually), in those cases use wget.
 #' See "method" argument of ?download.file, for more info.
+#' @param timeout 1000, how many seconds before killing download if
+#' still active? Will overwrite global option until R session is closed.
+#' Increase value if you are on a very slow connection.
 #' @param BPPARAM how many cores/threads to use? default: bpparam().
 #' To see number of threads used, do \code{bpparam()$workers}
 #' @return a character vector of download files filepaths
@@ -122,6 +127,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
                          compress = TRUE,
                          use.ebi.ftp = is.null(subset),
                          ebiDLMethod = "auto",
+                         timeout = 1000,
                          BPPARAM = bpparam()) {
 
   # If character presume SRR, if not check for column Run or SRR
@@ -145,7 +151,7 @@ download.SRA <- function(info, outdir, rename = TRUE,
     subset <- as.integer(subset)
     settings <- paste(settings, "-X", subset)
   } else if (use.ebi.ftp){
-    files <- download.ebi(info, outdir, rename, ebiDLMethod, BPPARAM)
+    files <- download.ebi(info, outdir, rename, ebiDLMethod, timeout, BPPARAM)
     if (length(files) > 0) return(files)
     message("Checking for fastq files using fastq-dump")
   }
@@ -286,6 +292,10 @@ download.SRA.metadata <- function(SRP, outdir = tempdir(), remove.invalid = TRUE
   url <- paste0(url, SRP)
   download.file(url, destfile)
   file <- fread(destfile)
+  if (nrow(file) == 0) {
+    warning("Experiment not found on SRA, are you sure it is public?")
+    return(file)
+  }
 
   msg <- paste("Found Runs with 0 reads (spots) in metadata, will not be able
               to download the run/s:", file[spots == 0,]$Run)
@@ -512,7 +522,8 @@ rename.SRA.files <- function(files, new_names) {
 #' @family sra
 #' @keywords internal
 download.ebi <- function(info, outdir, rename = TRUE,
-                         ebiDLMethod = "auto", BPPARAM = bpparam()) {
+                         ebiDLMethod = "auto", timeout = 1000,
+                         BPPARAM = bpparam()) {
 
   study <- NULL
   # If character presume SRR, if not check for column Run or SRR
@@ -544,6 +555,7 @@ download.ebi <- function(info, outdir, rename = TRUE,
   files <- file.path(outdir, basename(urls))
   message("Starting download of EBI runs:")
   method <- ebiDLMethod
+  options(timeout = timeout)
   BiocParallel::bplapply(urls, function(i, outdir, method) {
     message(i)
     download.file(i, destfile = file.path(outdir, basename(i)),

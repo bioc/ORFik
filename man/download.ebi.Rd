@@ -9,6 +9,7 @@ download.ebi(
   outdir,
   rename = TRUE,
   ebiDLMethod = "auto",
+  timeout = 1000,
   BPPARAM = bpparam()
 )
 }
@@ -18,7 +19,9 @@ a data.frame with SRA metadata information including the SRR numbers in a column
 "Run" or "SRR". Can be SRR, ERR or DRR numbers.
 If only SRR numbers can not rename, since no additional information is given.}
 
-\item{outdir}{a string, default: cbu server}
+\item{outdir}{directory to store runs,
+files are named by default (rename = TRUE) by information from SRA metadata table,
+if (rename = FALSE) named according to SRR numbers.}
 
 \item{rename}{logical or character, default TRUE (Auto guess new names). False: Skip
 renaming. A character vector of equal size as files wanted can also be given.
@@ -34,6 +37,10 @@ to something more meaningful.}
 to use in download.file when using ebi ftp download. Sometimes "curl"
 is might not work (the default auto usually), in those cases use wget.
 See "method" argument of ?download.file, for more info.}
+
+\item{timeout}{1000, how many seconds before killing download if
+still active? Will overwrite global option until R session is closed.
+Increase value if you are on a very slow connection.}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam().
 To see number of threads used, do \code{bpparam()$workers}}
