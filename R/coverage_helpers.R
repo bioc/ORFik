@@ -432,9 +432,12 @@ coverageScorings <- function(coverage, scoring = "zscore",
 #' So delete the score column or set weight to something else if this
 #' is not wanted.
 #' @param grl a \code{\link{GRangesList}} of 5' utrs, CDS, transcripts, etc.
-#' @param reads a \code{\link{GAlignments}} or \code{\link{GRanges}} object of
-#' RiboSeq, RnaSeq etc. Weigths for scoring is default the 'score'
-#' column in 'reads'
+#' @param reads a \code{\link{GAlignments}}, \code{\link{GRanges}}, or
+#' precomputed coverage as \code{\link{covRle}} (one for each strand) of
+#' RiboSeq, RnaSeq etc.\cr Weigths for scoring is default the 'score'
+#' column in 'reads'. Can also be random access paths to bigWig or fstwig file.
+#' Do not use random access for more than a few genes, then loading the entire files
+#' is usually better.
 #' @param is.sorted logical (FALSE), is grl sorted. That is + strand groups in
 #' increasing ranges (1,2,3), and - strand groups in decreasing ranges (3,2,1)
 #' @param keep.names logical (TRUE), keep names or not. If as.data.table is TRUE,
@@ -496,64 +499,114 @@ coveragePerTiling <- function(grl, reads, is.sorted = FALSE,
   if (!is.null(fraction)) stopifnot(length(fraction) == 1)
   if (!is.sorted) grl <- sortPerGroup(grl)
 
-  score.defined <- is.numeric(weight) | (weight[1] %in% colnames(mcols(reads)))
-  if (score.defined) {
-    coverage <- coverageByTranscriptW(reads, grl, weight = weight)
-  } else coverage <- coverageByTranscript(reads, grl)
-
-  if (!keep.names) names(coverage) <- NULL
-
-  if (as.data.table) {
-    if (drop.zero.dt) { # Drop 0 count rows
-      if (!keep.names) names(coverage) <- seq.int(length(coverage))
-      runV <- unlist(runValue(coverage), use.names = FALSE)
-      ir <- unlist(ranges(coverage), use.names = TRUE)[runV > 0]
-      if (length(ir) == 0) {
-        count <- data.table(count = integer(), genes = integer(), position = integer())
-        if (withFrames) count[, frame := integer()]
-        if (!is.null(fraction)) {
-          count[, fraction := new(class(fraction))]
-          warning("No coverage found for fraction: ", fraction, ". Returning empty data.table!")
-        } else warning("No coverage found, Returning empty data.table!")
-        return(count)
+  if (is(reads, "character")) {
+    if (all(is.null(fraction))) fraction <- "all"
+    file_ext <- tools::file_ext(reads)
+    if (all(file_ext == "bigWig")) {
+      rl <- ranges(grl)
+      names(rl) <- seqnamesPerGroup(grl, FALSE)
+      strands <- strandPerGroup(grl, FALSE)
+      coverage <- NumericList()
+      for (strand in unique(strands)) {
+        coverage <- c(coverage, import.bw(reads[ifelse(strand == "+", 1,2)], as = "NumericList",
+                              which = rl[strands == strand]))
       }
-      runV <- runV[runV > 0]
-      runV <- rep.int(runV, width(ir))
-      ir <- unlist(tile(ir, width = 1))
-      count <- data.table(count = runV) #
-      if (keep.names) {
-        count[, `:=`(genes = factor(names(ir)), position = start(ir))]
-      } else {
-        count[, `:=`(genes = as.integer(names(ir)),
-                     position = start(ir))]
+      groupings <- ORFik::groupings(coverage)
+      coverage <- data.table(count = unlist(coverage, use.names = FALSE))
+      coverage[, genes := groupings]
+    } else if (all(file_ext == "fstwig") | TRUE) {
+      chrs <- seqnamesPerGroup(grl, FALSE)
+      chr_groups <- unique(chrs)
+      for (chr in chr_groups) {
+        coverage <- import.fstwig(unlist(grl[chrs == chr_groups], use.names = FALSE),
+                                  dir = reads,
+                                  readlengths = fraction)
       }
-    } else { # Keep all 0 count rows
-      window_size <- unique(widthPerGroup(grl, FALSE))
-      count.is.integer <- if (is.character(weight)) { # Save space if integer
-        is.integer(mcols(reads)[,colnames(mcols(reads)) %in% weight])
-      } else is.integer(weight)
-
-      count <- if (count.is.integer) {
-        data.table(count = unlist(IntegerList(coverage), use.names = FALSE))
-      } else data.table(count = unlist(NumericList(coverage),
-                                       use.names = FALSE))
-
-      count[, genes := ORFik::groupings(coverage)]
-      if (length(window_size) != 1) { # different size windows
-        count[, position := seq_len(.N), by = genes]
-      } else { # all same size
-        count[, position := rep.int(seq.int(window_size), length(coverage))]
-      }
+      coverage[, genes := rep(seq(length(grl)), each = widthPerGroup(grl, FALSE))]
     }
-    if (withFrames) {
-      count[, frame := (position - 1) %% 3]
+
+    coverage[, position := seq_len(.N), by = genes]
+    if (withFrames) coverage[, frame := (position - 1) %% 3]
+
+  } else {
+    if (is(reads, "covRle") | is(reads, "RleList")) {
+      coverage <- coverageByTranscriptC(reads, grl)
+    } else {
+      score.defined <- is.numeric(weight) | (weight[1] %in% colnames(mcols(reads)))
+      if (score.defined) {
+        seqinfo.is.correct <- identical(seqlengths(reads), seqlengths(grl)) & !anyNA(seqlengths(grl))
+        coverage <- coverageByTranscriptW(reads, grl, weight = weight,
+                                          seqinfo.x.is.correct = seqinfo.is.correct)
+      } else coverage <- coverageByTranscript(reads, grl)
     }
-    if (!is.null(fraction)) count[, fraction := fraction]
-    count[]# for print
-    return(count)
+
+    if (!keep.names) names(coverage) <- NULL
+
+    if (as.data.table) {
+      return(coverage_to_dt(coverage, keep.names = keep.names,
+                            withFrames = withFrames, weight = weight,
+                            drop.zero.dt = drop.zero.dt, fraction = fraction))
+    }
+    if (!is.null(fraction)) metadata(coverage) <- list(fraction = fraction)
   }
-  if (!is.null(fraction)) metadata(coverage) <- list(fraction = fraction)
+
   return(coverage)
+}
+
+#' Convert coverage RleList to data.table
+#' @param coverage RleList with names
+#' @inheritParams coveragePerTiling
+#' @return a data.table with column names c("count" [numeric or integer],
+#'  "genes" [integer], "position" [integer])
+coverage_to_dt <- function(coverage, keep.names = TRUE,
+                           withFrames = FALSE, weight = "score",
+                           drop.zero.dt = FALSE, fraction = NULL) {
+  if (drop.zero.dt) { # Drop 0 count rows
+    if (!keep.names) names(coverage) <- seq.int(length(coverage))
+    runV <- unlist(runValue(coverage), use.names = FALSE)
+    ir <- unlist(ranges(coverage), use.names = TRUE)[runV > 0]
+    if (length(ir) == 0) {
+      count <- data.table(count = integer(), genes = integer(), position = integer())
+      if (withFrames) count[, frame := integer()]
+      if (!is.null(fraction)) {
+        count[, fraction := new(class(fraction))]
+        warning("No coverage found for fraction: ", fraction, ". Returning empty data.table!")
+      } else warning("No coverage found, Returning empty data.table!")
+      return(count)
+    }
+    runV <- runV[runV > 0]
+    runV <- rep.int(runV, width(ir))
+    ir <- unlist(tile(ir, width = 1))
+    count <- data.table(count = runV) #
+    if (keep.names) {
+      count[, `:=`(genes = factor(names(ir)), position = start(ir))]
+    } else {
+      count[, `:=`(genes = as.integer(names(ir)),
+                   position = start(ir))]
+    }
+  } else { # Keep all 0 count rows
+    window_size <- unique(lengths(coverage))
+    count.is.integer <- is(coverage@unlistData@values, "integer")
+
+    count <- if (count.is.integer) {
+      data.table(count = unlist(IntegerList(coverage), use.names = FALSE))
+    } else data.table(count = unlist(NumericList(coverage),
+                                     use.names = FALSE))
+
+    count[, genes := ORFik::groupings(coverage)]
+    if (length(window_size) != 1) { # different size windows
+      count[, position := seq_len(.N), by = genes]
+    } else { # all same size
+      count[, position := rep.int(seq.int(window_size), length(coverage))]
+    }
+  }
+  if (withFrames) {
+    count[, frame := (position - 1) %% 3]
+  }
+  if (!is.null(fraction)) count[, fraction := fraction]
+
+  count[]# for print
+  return(count)
 }
 
 #' Append zero values to data.table
@@ -610,6 +663,10 @@ appendZeroes <- function(dt, max.pos, min.pos = 1L,
 #' @param exclude.zero.cov.grl logical, default TRUE. Do not include
 #' ranges that does not have any coverage (0 reads on them),
 #' this makes it faster to run.
+#' @param drop.zero.dt logical, default TRUE.
+#' If TRUE and as.data.table is TRUE, remove all 0 count positions.
+#' This greatly speeds up and most importantly, greatly reduces memory usage.
+#' Will not change any plots, unless 0 count positions are used in some sense.
 #' @param BPPARAM how many cores/threads to use? default: bpparam()
 #' @return a data.table with lengths by coverage.
 #' @family coverage
@@ -635,12 +692,15 @@ regionPerReadLength <- function(grl, reads, acceptedLengths = NULL,
   if (!is.null(acceptedLengths))
     all_lengths <- all_lengths[all_lengths %in% acceptedLengths]
   if (exclude.zero.cov.grl) {
-    grl <- grl[hasHits(grl, reads)]
+    if (!is(reads, "covRleList")) {
+      grl <- grl[hasHits(grl, reads)]
+    } else message("NOTE: exclude.zero.cov.grl not implemented for covRleList yet, ignoring it.")
   }
 
   dt <- bplapply(all_lengths, function(l, grl, reads, weight, rWidth,
                                        scoring, withFrames, drop.zero.dt) {
-    d <- coveragePerTiling(grl, reads[rWidth == l],
+    d <- coveragePerTiling(grl, reads = if (!is(reads, "covRleList")) {reads[rWidth == l]}
+                                           else  reads@list[[as.character(l)]],
                            as.data.table = TRUE, withFrames = withFrames,
                            weight = weight, is.sorted = TRUE,
                            drop.zero.dt = drop.zero.dt)
@@ -669,6 +729,13 @@ regionPerReadLength <- function(grl, reads, acceptedLengths = NULL,
 #' are of all of valid length!
 #' @inheritParams startRegion
 #' @inheritParams coveragePerTiling
+#' @param reads a \code{\link{GAlignments}}, \code{\link{GRanges}}, or
+#' precomputed coverage as \code{\link{covRleList}}
+#' (where names of covRle objects are readlengths) of
+#' RiboSeq, RnaSeq etc. \cr Weigths for scoring is default the 'score'
+#' column in 'reads'. Can also be random access paths to bigWig or fstwig file.
+#' Do not use random access for more than a few genes, then loading the entire files
+#' is usually better.
 #' @param pShifted a logical (TRUE), are Ribo-seq reads p-shifted to size
 #'  1 width reads? If upstream and downstream is set, this argument is
 #'  irrelevant. So set to FALSE if this is not p-shifted Ribo-seq.
@@ -734,11 +801,12 @@ windowPerReadLength <- function(grl, tx = NULL, reads, pShifted = TRUE,
   all_lengths <- sort(unique(rWidth))
   if (!is.null(acceptedLengths))
     all_lengths <- all_lengths[all_lengths %in% acceptedLengths]
-  dt <- data.table()
 
+  dt <- data.table()
   for(l in all_lengths) {
     dt <- rbindlist(list(dt, metaWindow(
-      x = reads[rWidth == l], windows = windows, scoring = scoring,
+      x = if (!is(reads, "covRleList")) {reads[rWidth == l]} else  reads@list[[as.character(l)]],
+      windows = windows, scoring = scoring,
       zeroPosition =  zeroPosition, forceUniqueEven = FALSE, fraction = l,
       weight = weight,
       drop.zero.dt = drop.zero.dt, append.zeroes = append.zeroes)))

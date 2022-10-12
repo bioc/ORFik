@@ -262,7 +262,46 @@ setGeneric("QCfolder", function(x) standardGeneric("QCfolder"))
 setMethod("QCfolder",
           "experiment",
           function(x) {
-            file.path(dirname(x$filepath[1]), "QC_STATS/")
+            file.path(libFolder(df), "QC_STATS/")
+          }
+)
+
+#' Get ORFik experiment library folder
+#'
+#' @param x an ORFik \code{\link{experiment}}
+#' @return a character path
+#' @export
+setGeneric("libFolder", function(x) standardGeneric("libFolder"))
+
+#' @inherit libFolder
+setMethod("libFolder",
+          "experiment",
+          function(x) {
+            dirname(x$filepath[1])
+          }
+)
+
+#' Seqlevels ORFik experiment
+#' Extracted from fasta genome index
+#' @param x an ORFik \code{\link{experiment}}
+#' @return integer vector with names
+#' @export
+setMethod("seqlevels",
+          "experiment",
+          function(x) {
+            seqlevels(findFa(df@fafile))
+          }
+)
+
+#' Seqinfo ORFik experiment
+#' Extracted from fasta genome index
+#' @param x an ORFik \code{\link{experiment}}
+#' @return integer vector with names
+#' @export
+setMethod("seqinfo",
+          "experiment",
+          function(x) {
+            seqinfo(findFa(df@fafile))
           }
 )
 

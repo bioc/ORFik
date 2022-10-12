@@ -546,6 +546,25 @@ filepath <- function(df, type, basename = FALSE) {
         }
       } else type <- "ofst"
     }
+    if (type %in% "cov") {
+      out.dir <- paste0(dirname(df$filepath[1]), "/cov_RLE/")
+      input <- paste0(out.dir,
+                      remove.file_ext(x,
+                                      basename = TRUE)
+                      , ".covrds")
+      if (!file.exists(input)) stop("File did not exist,",
+                                    "did you create covRle yet?")
+    }
+
+    if (type %in% "covl") {
+      out.dir <- paste0(dirname(df$filepath[1]), "/cov_RLE_List/")
+      input <- paste0(out.dir,
+                      remove.file_ext(x,
+                                      basename = TRUE)
+                      , ".covrds")
+      if (!file.exists(input)) stop("File did not exist,",
+                                    "did you create covRleList yet?")
+    }
 
     if (type %in% c("bedoc", "bedo", "bed", "ofst")) {
       out.dir <- paste0(dirname(df$filepath[1]), "/",type,"/")
@@ -654,13 +673,24 @@ outputLibs <- function(df, chrStyle = NULL, type = "default",
     if (!all(loaded)) {
       if (verbose) message(paste0("Outputting libraries from: ", name(df)))
       paths <- filepath(df, type)
-      libs <- bplapply(seq_along(paths),
+      if (is(BPPARAM, "SerialParam")) {
+        libs <- lapply(seq_along(paths),
                        function(i, paths, df, chrStyle, param, strandMode, varNames, verbose) {
-        if (verbose) message(paste(i, ": ", varNames[i]))
-        fimport(paths[i], chrStyle, param, strandMode)
-      }, paths = paths, chrStyle = chrStyle, df = df,
-      param = param, strandMode = strandMode, varNames = varNames,
-      verbose = verbose, BPPARAM = BPPARAM)
+                           if (verbose) message(paste(i, ": ", varNames[i]))
+                           fimport(paths[i], chrStyle, param, strandMode)
+                         }, paths = paths, chrStyle = chrStyle, df = df,
+                         param = param, strandMode = strandMode, varNames = varNames,
+                         verbose = verbose)
+      } else {
+        libs <- bplapply(seq_along(paths),
+                         function(i, paths, df, chrStyle, param, strandMode, varNames, verbose) {
+                           if (verbose) message(paste(i, ": ", varNames[i]))
+                           fimport(paths[i], chrStyle, param, strandMode)
+                         }, paths = paths, chrStyle = chrStyle, df = df,
+                         param = param, strandMode = strandMode, varNames = varNames,
+                         verbose = verbose, BPPARAM = BPPARAM)
+      }
+
 
       # assign to environment
       if (output.mode %in% c("envir", "envirlist")) {
@@ -842,6 +872,7 @@ mergeLibs <- function(df, out_dir = file.path(dirname(df$filepath[1]), "ofst_mer
   }
   return(invisible(NULL))
 }
+
 #' Remove ORFik experiment libraries load in R
 #'
 #' Variable names defined by df, in envir defined
@@ -991,7 +1022,7 @@ list.experiments <- function(dir =  ORFik::config()["exp"],
     e <- read.experiment(x, dir, validate)
     list(libtype = unique(e$libtype), runs = length(e$libtype), organism = e@organism,
          author = e@author)
-  }, dir = dir, validate = validate)
+  }, dir = dir, validate = validate, BPPARAM = BPPARAM)
 
   info <- unlist(info, recursive = FALSE)
   libtypes <- info[grep("libtype", names(info))]

@@ -479,10 +479,13 @@ revElementsF <- function(x) {
 #' that gives number of times a read was found.
 #' GRanges("chr1", 1, "+", score = 5), would mean score column tells
 #' that this alignment was found 5 times.
+#' @param seqinfo.x.is.correct logical, default FALSE. If you know x, has
+#' correct seqinfo, then you can save some computation time by setting this to
+#' TRUE.
 #' @importFrom S4Vectors wmsg isTRUEorFALSE
 #' @return Integer Rle of coverage, 1 per transcript
 coverageByTranscriptW <- function (x, transcripts, ignore.strand = FALSE,
-                                    weight = 1L) {
+                                    weight = 1L, seqinfo.x.is.correct = FALSE) {
   if (!is(transcripts, "GRangesList")) {
     transcripts <- try(exonsBy(transcripts, by = "tx", use.names = TRUE),
                        silent = TRUE)
@@ -492,74 +495,29 @@ coverageByTranscriptW <- function (x, transcripts, ignore.strand = FALSE,
   }
   if (!isTRUEorFALSE(ignore.strand))
     stop(wmsg("'ignore.strand' must be TRUE or FALSE"))
-  seqinfo(x) <- GenomicFeatures:::.merge_seqinfo_and_infer_missing_seqlengths(x,
+  if (!seqinfo.x.is.correct) {
+    seqinfo(x) <- GenomicFeatures:::.merge_seqinfo_and_infer_missing_seqlengths(x,
                                                                               transcripts)
-  ex <- unlist(transcripts, use.names = FALSE)
-  sm <- selfmatch(ex)
-  is_unique <- sm == seq_along(sm)
-  uex2ex <- which(is_unique)
-  uex <- ex[uex2ex]
-  # Fix GAlignments not allowing mcol weight, remove when they fix it
-  # in GAlignments definition of coverage.
-  if ((is(x, "GAlignments") | is(x, "GAlignmentPairs"))
-      & is.character(weight)) {
-    if (!(weight %in% colnames(mcols(x))))
-      stop("weight is character and not mcol of x,",
-           " check spelling of weight.")
-    weight <- mcols(x)[, weight]
-    x <- grglist(x) # convert to grl
-    weight = weight[groupings(x)] # repeat weight per group
   }
-  # Get coverage
-  if (ignore.strand) {
-    cvg <- coverage(x, weight = weight)
-    uex_cvg <- cvg[uex]
-  }
-  else {
-    pluss <- BiocGenerics::`%in%`(strand(x), c("+", "*"))
-    minus <- BiocGenerics::`%in%`(strand(x), c("-", "*"))
-    x1 <- x[pluss]
-    x2 <- x[minus]
-    if (length(weight) > 1) {
-      # Add unlist in case of GAlignments
-      cvg1 <- coverage(x1, weight = weight[as.logical(unlist(pluss))])
-      cvg2 <- coverage(x2, weight = weight[as.logical(unlist(minus))])
-    } else {
-      cvg1 <- coverage(x1, weight = weight)
-      cvg2 <- coverage(x2, weight = weight)
-    }
-    is_plus_ex <- strand(uex) == "+"
-    is_minus_ex <- strand(uex) == "-"
-    if (!identical(is_plus_ex, !is_minus_ex))
-      stop(wmsg("'transcripts' has exons on the * strand. ",
-                "This is not supported at the moment."))
-    uex_cvg <- RleList(rep(IntegerList(1), length(uex)))
-    uex_cvg[is_plus_ex] <- cvg1[uex[is_plus_ex]]
-    uex_cvg[is_minus_ex] <- cvg2[uex[is_minus_ex]]
-    names(uex_cvg) <- as.character(seqnames(uex))
-  }
-  uex_cvg[strand(uex) == "-"] <- revElementsF(uex_cvg)[strand(uex) == "-"]
-  ex2uex <- (seq_along(sm) - cumsum(!is_unique))[sm]
-  ex_cvg <- uex_cvg[ex2uex]
-  ans <- IRanges:::regroupBySupergroup(ex_cvg, transcripts)
-  mcols(ans) <- mcols(transcripts)
-  return(ans)
+  return(coverageByTranscriptC(x = covRleFromGR(x, weight = weight,
+                                                ignore.strand = ignore.strand),
+                               transcripts = transcripts))
 }
 
 #' coverageByTranscript with coverage input
 #'
 #' Extends the function with direct genome coverage input,
 #' see \code{\link{coverageByTranscript}} for original function.
-#' @param x a list of simpleRleList, must have defined and correct
+#' @param x a covRle (one RleList for each strand in object),
+#'  must have defined and correct
 #' seqlengths in its SeqInfo object.
 #' @param transcripts \code{\link{GRangesList}}
-#' @param ignore.strand a logical (default: FALSE)
-#' @importFrom S4Vectors wmsg isTRUEorFALSE
+#' @param ignore.strand a logical (default: length(x) == 1)
+#' @importFrom S4Vectors wmsg isTRUEorFALSE List
 #' @return Integer Rle of coverage, 1 per transcript
-coverageByTranscriptC <- function (x, transcripts, ignore.strand = length(x) == 1) {
-  stopifnot(is(x, "list"))
-  stopifnot(is(x[[1]], "SimpleRleList"))
-  stopifnot(all(!anyNA(seqlengths(x[[1]]))))
+coverageByTranscriptC <- function (x, transcripts, ignore.strand = !strandMode(x)) {
+  stopifnot(is(x, "covRle"))
+  stopifnot(all(!anyNA(seqlengths(f(x)))))
   if (!is(transcripts, "GRangesList")) {
     transcripts <- try(exonsBy(transcripts, by = "tx", use.names = TRUE),
                        silent = TRUE)
@@ -569,14 +527,15 @@ coverageByTranscriptC <- function (x, transcripts, ignore.strand = length(x) == 
   }
   if (!isTRUEorFALSE(ignore.strand))
     stop(wmsg("'ignore.strand' must be TRUE or FALSE"))
-  cvg1 <- x[[1]]
-  if (length(x) == 2) cvg2 <- x[[2]]
-
+  # Create hash table of unique exons as uex
   ex <- unlist(transcripts, use.names = FALSE)
   sm <- selfmatch(ex)
   is_unique <- sm == seq_along(sm)
   uex2ex <- which(is_unique)
   uex <- ex[uex2ex]
+
+  cvg1 <- f(x)
+  if (strandMode(x)) cvg2 <- r(x)
 
   # Get coverage
   if (ignore.strand) {
@@ -600,6 +559,7 @@ coverageByTranscriptC <- function (x, transcripts, ignore.strand = length(x) == 
   mcols(ans) <- mcols(transcripts)
   return(ans)
 }
+
 # Testing new version
 # coverageByTranscriptW2 <- function (x, transcripts, ignore.strand = FALSE,
 #                                    weight = 1L) {

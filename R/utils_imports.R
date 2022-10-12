@@ -197,11 +197,12 @@ readWig <- function(path, chrStyle = NULL) {
 #' @param path a character path to two .bigWig files, or a data.table
 #' with 2 columns, (forward, filepath) and reverse, only 1 row.
 #' @inheritParams matchSeqStyle
+#' @inheritParams rtracklayer::import.bw
 #' @importFrom rtracklayer import.bw
 #' @return a \code{\link{GRanges}} object of the file/s
 #' @family utils
 #'
-readBigWig <- function(path, chrStyle = NULL) {
+readBigWig <- function(path, chrStyle = NULL, as = "GRanges") {
   if (is(path, "character")) {
     if (length(path) != 2) stop("readWig must have 2 wig files,
                               one forward strand and one reverse!")
@@ -212,19 +213,62 @@ readBigWig <- function(path, chrStyle = NULL) {
       forwardIndex <- forwardPath
       reverseIndex <- reversePath
     }
-
-    forward <- import.bw(path[forwardIndex])
-    reverse <- import.bw(path[reverseIndex])
+    forward <- import.bw(path[forwardIndex], as = as)
+    reverse <- import.bw(path[reverseIndex], as = as)
   } else if (is(path, "data.table")) {
     if (!is.null(path$forward)) {
-      forward <- import.bw(path$forward)
-    } else forward <- import.wig(path$filepath)
-    reverse <- import.bw(path$reverse)
+      forward <- import.bw(path$forward, as = as)
+    } else forward <- import.bw(path$filepath, as = as)
+    reverse <- import.bw(path$reverse, as = as)
   }
-  strand(forward) <- "+"
-  strand(reverse) <- "-"
-  return(matchSeqStyle(c(forward, reverse), chrStyle))
+  if (as == "GRanges") {
+    strand(forward) <- "+"
+    strand(reverse) <- "-"
+    return(matchSeqStyle(suppressWarnings(c(forward, reverse)), chrStyle))
+  } else if(as =="RleList") {
+    return(matchSeqStyle(covRle(forward, reverse), chrStyle))
+  } else { # NumericList
+    return(list(forward, reverse))
+  }
 }
+
+#' Import region from fastwig
+#'
+#' @param gr a GRanges object of exons
+#' @param dir prefix to filepath for file strand and chromosome will be added
+#' @param id id to column type, not used currently!
+#' @param readlengths integer / character vector, default "all". Or a subset
+#' of readlengths.
+#' @return a data.table with columns specified by readlengths
+#' @importFrom fst fst
+#' @export
+import.fstwig <- function(gr, dir, id = "", readlengths = "all") {
+
+  if (length(unique(seqnames(gr))) > 1) stop("Ranges from multiple chromosomes given",
+                                             ", fstwig only saves 1 at a time!")
+  gr <- as.data.table(gr)
+  strand <- ifelse(gr$strand[1] == "+", "forward", "reverse")
+  if (id == "") {id <- NULL}
+  file <- paste(dir, "_", as.character(gr[1]$seqnames), "_", strand, ".fstwig", sep = "")
+  reads <- fst(file)
+  cols <- colnames(reads)
+  if (!all(readlengths == "all")) {
+    colids <- as.character(readlengths)
+    # TODO: add id support
+    #colids <- paste(id, readlengths, sep = "_")
+    cols <- colids[colids %in% cols]
+    if (length(cols) == 0) stop("Select columns does not exist in fstwig file!")
+  }
+  cov <-  mapply(function(x,y) read_fst(file, from = x, to = y, columns = cols),
+                 x = gr$start, y = gr$end, SIMPLIFY = FALSE)
+
+  cov <- rbindlist(cov)
+  if (length(cols) == 1) {
+    colnames(cov) <- cols
+  }
+  return(cov)
+}
+
 
 #' Load GRanges object from .bedo
 #'
@@ -410,6 +454,8 @@ fimport <- function(path, chrStyle = NULL, param = NULL, strandMode = 0) {
           return(matchSeqStyle(import.bedoc(path), chrStyle))
         } else if (fext == "ofst") {
           return(matchSeqStyle(import.ofst(path, strandMode), chrStyle))
+        } else if (fext == "covrds") {
+          return(matchSeqStyle(readRDS(path), chrStyle))
         }else return(matchSeqStyle(import(path), chrStyle))
       } else stop("fimport takes either 1 or 2 files!")
     } else stop(paste(path, "does not exist as File/Files!"))

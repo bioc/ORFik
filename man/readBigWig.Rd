@@ -4,18 +4,30 @@
 \alias{readBigWig}
 \title{Custom bigWig reader}
 \usage{
-readBigWig(path, chrStyle = NULL)
+readBigWig(path, chrStyle = NULL, as = "GRanges")
 }
 \arguments{
 \item{path}{a character path to two .bigWig files, or a data.table
 with 2 columns, (forward, filepath) and reverse, only 1 row.}
 
 \item{chrStyle}{a GRanges object, TxDb, FaFile,
-or a \code{\link{seqlevelsStyle}}
-(Default: NULL) to get seqlevelsStyle from. Is chromosome 1
-called chr1 or 1, is mitocondrial chromosome called MT or chrM etc.
+, a \code{\link{seqlevelsStyle}} or \code{\link{Seqinfo}}.
+(Default: NULL) to get seqlevelsStyle from. In addition if it
+is a Seqinfo object, seqinfo will be updated.
+Example of seqlevelsStyle update:
+Is chromosome 1 called chr1 or 1,
+ is mitocondrial chromosome called MT or chrM etc.
 Will use 1st seqlevel-style if more are present.
 Like: c("NCBI", "UCSC") -> pick "NCBI"}
+
+\item{as}{Specifies the class of the return object. Default is
+    \code{GRanges}, which has one range per range in the file, and a
+    score column holding the value for each range. For
+    \code{NumericList}, one numeric vector is returned for each range in
+    the \code{selection} argument. For \code{RleList}, there is one
+    \code{Rle} per sequence, and that \code{Rle} spans the entire
+    sequence.
+  }
 }
 \value{
 a \code{\link{GRanges}} object of the file/s
@@ -32,6 +44,7 @@ Other utils:
 \code{\link{convertToOneBasedRanges}()},
 \code{\link{export.bed12}()},
 \code{\link{export.bigWig}()},
+\code{\link{export.fstwig}()},
 \code{\link{export.wiggle}()},
 \code{\link{fimport}()},
 \code{\link{findFa}()},

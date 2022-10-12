@@ -33,9 +33,13 @@ This is the region that will be mapped in heatmap}
 names of tx must contain all grl names. The names of grl can also be the
 ORFik orf names. that is "txName_id"}
 
-\item{reads}{a \code{\link{GAlignments}} or \code{\link{GRanges}} object of
-RiboSeq, RnaSeq etc. Weigths for scoring is default the 'score'
-column in 'reads'}
+\item{reads}{a \code{\link{GAlignments}}, \code{\link{GRanges}}, or
+precomputed coverage as \code{\link{covRleList}}
+(where names of covRle objects are readlengths) of
+RiboSeq, RnaSeq etc. \cr Weigths for scoring is default the 'score'
+column in 'reads'. Can also be random access paths to bigWig or fstwig file.
+Do not use random access for more than a few genes, then loading the entire files
+is usually better.}
 
 \item{outdir}{a character path to save file as: not just directory,
 but full name.}

@@ -107,9 +107,19 @@ export.wiggle <- function(x, file) {
 #'
 #' @references https://genome.ucsc.edu/goldenPath/help/bigWig.html
 #' @param x A GRangesList, GAlignment GAlignmentPairs with score column.
-#' Will be converted to 5' end position of original range. If score column
-#' does not exist, will group ranges and give replicates as score column.
+#'  Will be converted to 5' end position of original range. If score column
+#'  does not exist, will group ranges and give replicates as score column.
+#'  Since bigWig needs a score column to represent counts!
 #' @param file a character path to valid output file name
+#' @param is_pre_collapsed logical, default FALSE. Have you already
+#'  collapsed reads with collapse.by.scores,
+#'  so each positions is only in 1 GRanges object with
+#'  a score column per readlength?
+#'  Set to TRUE, only if you are sure, will give a speedup.
+#' @param split.by.strand logical, default TRUE. Split bigWig into 2 files,
+#'  one for each strand.
+#' @param seq_info a Seqinfo object, default seqinfo(x).
+#'  Must have non NA seqlengths defined!
 #' @return invisible(NULL) (File is saved as 2 .bigWig files)
 #' @importFrom rtracklayer export.bw
 #' @export
@@ -117,32 +127,196 @@ export.wiggle <- function(x, file) {
 #' @examples
 #' x <- c(GRanges("1", c(1,3,5), "-"), GRanges("1", c(1,3,5), "+"))
 #' # export.bigWig(x, "output/path/rna.bigWig")
-export.bigWig <- function(x, file) {
+export.bigWig <- function(x, file, split.by.strand = TRUE,
+                          is_pre_collapsed = FALSE, seq_info = seqinfo(x)) {
+  if(anyNA(seqlengths(seq_info))) stop("seqinfo of x must be defined and have defined seqlengths!")
   if (!(is(x, "GRanges") | is(x, "GAlignmentPairs") | is(x, "GAlignments")))
     stop("x must be GRanges, GAlignments or GAlignmentPairs")
-  if (!is(x, "GRanges")) x <- GRanges(x)
+  if (!is(x, "GRanges")) { x <- GRanges(x, seqinfo = seq_info)
+  } else {seqlevels(x) <- seqlevels(seq_info); seqinfo(x) <- seq_info}
 
-  x <- resize(x, width = 1, fix = "start")
+  if (!all(width(x) == 1)) x <- resize(x, width = 1, fix = "start")
   if (!("score" %in% colnames(mcols(x)))) {
     x <- convertToOneBasedRanges(x, method = "None",
                                  addScoreColumn = TRUE,
                                  addSizeColumn = FALSE)
   } else { # merge reads by sum of existing scores
-    x <- collapse.by.scores(x)
+    if (!is_pre_collapsed) x <- collapse.by.scores(x)
   }
   strands <- as.character(strand(x))
-  if (all(strands == "*")) {
-    file <- gsub("\\.bigWig", "", file)
+  if (all(strands == "*") | !split.by.strand) {
+    file <- gsub("\\.bigWig", "", file, ignore.case = TRUE)
     file <- paste0(file, ".bigWig")
-    export.wig(x, file)
+    export.bw(x, file)
   } else {
-    file <- gsub("\\.bigWig", "", file)
+    file <- gsub("\\.bigWig", "", file, ignore.case = TRUE)
     forward_file <- paste0(file, "_forward.bigWig")
     reverse_file <- paste0(file, "_reverse.bigWig")
     export.bw(x[strandBool(x)], forward_file)
     export.bw(x[!strandBool(x)], reverse_file)
   }
   return(invisible(NULL))
+}
+
+
+#' Export as fstwig (fastwig) format
+#'
+#' Will create 2 files, 1 for + strand (*_forward.fstwig)
+#' and 1 for - strand (*_reverse.fstwig). If all
+#' ranges are * stranded, will output 1 file.
+#'
+#' @references "TODO"
+#' @param x A GRangesList, GAlignment GAlignmentPairs with score column
+#'  or coverage RLElist
+#' Will be converted to 5' end position of original range. If score column
+#' does not exist, will group ranges and give replicates as score column.
+#' @inheritParams fst::write_fst
+#' @param file a character path to valid output file name
+#' @param by.readlength logical, default TRUE
+#' @param by.chromosome logical, default TRUE
+#' @return invisible(NULL) (File is saved as 2 .fstwig files)
+#' @export
+#' @family utils
+#' @examples
+#' x <- c(GRanges("1", c(1,3,5), "-"), GRanges("1", c(1,3,5), "+"))
+#' x$size <- rep(c(28, 29), length.out = length(x))
+#' x$score <- c(5,1,2,5,1,6)
+#' seqlengths(x) <- 5
+#' # export.fstwig(x, "~/Desktop/ribo")
+export.fstwig <- function(x, file, by.readlength = TRUE,
+                          by.chromosome = TRUE, compress = 50) {
+  # TODO: Implement split.by.strand argument!
+  if (length(x) == 0) stop("length of x is 0, no values to export!")
+  if (anyNA(seqlengths(x))) stop("Define seqlength to make sure tails are correct")
+
+  if ((is(x, "GRanges") | is(x, "GAlignmentPairs") | is(x, "GAlignments"))) {
+    if (!is(x, "GRanges")) x <- GRanges(x)
+    message("-- Creating covRle object from GRanges")
+    strands <- as.character(strand(x))
+    strandBool <- strandBool(x)
+    strand_mode <- ifelse(all(strands == "*"), "single", "double")
+    # Get coverage
+    if (by.readlength) {
+      readlengths <- readWidths(x)
+    } else readlengths <- rep.int(1, length(x))
+    unique_lengths <- sort(unique(readlengths))
+    x_b <- x_p <- x_m <- list()
+    message("- Read length: ", appendLF = FALSE)
+    for (length in unique_lengths) {
+      message(", ", length, appendLF = FALSE)
+      if (strand_mode == "single") { # b = both strands
+        x_b <- c(x_b, coverage(x[readlengths == length], weight = "score"))
+      } else { # p = pluss strand, m = minus strand
+        hits <- which(readlengths == length)
+        x_p <- c(x_p, coverage(x[hits][strandBool[hits]], weight = "score"))
+        x_m <- c(x_m, coverage(x[hits][!strandBool[hits]], weight = "score"))
+      }
+    }
+
+    if (strand_mode != "single") { # Add check for readlength
+      names(x_p) <- names(x_m) <- unique_lengths
+    } else {
+      names(x_b) <-  unique_lengths
+    }
+
+  } else if (is(x, "covRle")) {
+    if (strandMode(x)) {
+      x_p <- f(x)
+      x_m <- r(x)
+      strand_mode <- "double"
+    }
+  } else if (is(x, "RleList")) {
+    x_b <- x
+    strand_mode <- "single"
+  } else stop("x must be GRanges, GAlignments, GAlignmentPairs, RleList or covRle")
+  chrs <- seqlevels(x)
+  if (!dir.exists(dirname(file))) dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
+  if (by.readlength) {
+    message("- Output fstwig for chr:")
+    for (chr in chrs) {
+      message(chr)
+      if (strand_mode == "single") {
+        stop("Not implemented")
+      } else {
+        if (by.readlength) {
+          lengths_to_use <- as.character(sort(unique_lengths))
+          dtt_p <- data.table()
+          dtt_m <- data.table()
+          message("- Inserting column for read length:", appendLF = FALSE)
+          for(length in lengths_to_use) {
+            message(", ", length, appendLF = FALSE)
+            dtt_p <-cbind(dtt_p, data.table(unlist(IntegerList(x_p[[length]][chr]))))
+            dtt_m <-cbind(dtt_m, data.table(unlist(IntegerList(x_m[[length]][chr]))))
+          }
+          colnames(dtt_p) <- colnames(dtt_m) <- lengths_to_use
+          dt <- list(dtt_p, dtt_m)
+        } else {
+          dt <- list(data.table(unlist(IntegerList(x_p[chr]))), data.table(unlist(IntegerList(x_m[chr]))))
+        }
+
+      }
+      file_chr <- paste0(file, "_", chr)
+      ORFik:::save.fstwig(dt, file_chr, compress = compress)
+      rm(dt)
+    }
+  } else {
+    stop("Not implemented")
+  }
+
+  return(invisible(NULL))
+}
+
+save.fstwig <- function(x, file, compress = 50) {
+  mode <- ifelse(is(x, "data.table"), "single", "double")
+  file <- gsub("\\.fstwig", "", file, ignore.case = TRUE)
+  if (mode == "single") {
+    file <- paste0(file, ".fstwig")
+    fst::write_fst(x, file, compress = compress)
+  } else {
+    file <- gsub("\\.fstwig", "", file, ignore.case = TRUE)
+    forward_file <- paste0(file, "_forward.fstwig")
+    reverse_file <- paste0(file, "_reverse.fstwig")
+
+    fst::write_fst(x[[1]], path = forward_file, compress = compress)
+    fst::write_fst(x[[2]], path = reverse_file, compress = compress)
+  }
+  return(invisible(NULL))
+}
+
+export.cov <- function(x, file, seqinfo, split.by.strand = TRUE,
+                       weight = "score") {
+  stopifnot(is(seqinfo, "Seqinfo"))
+  if (!is(x, "covRle") & !is(x, "RleList")) {
+    seqlevels(x) <- seqlevels(seqinfo)
+    seqinfo(x) <- seqinfo
+    x <- covRleFromGR(x, weight = weight, ignore.strand = !split.by.strand)
+  }
+  seqinfo(x) <- seqinfo
+  file <- paste0(gsub("\\.covrds", "", file, ignore.case = TRUE), ".covrds")
+  saveRDS(x, file = file)
+}
+
+export.covlist <- function(x, file, seqinfo, split.by.strand = TRUE,
+                       weight = "score", verbose = TRUE) {
+  stopifnot(is(seqinfo, "Seqinfo"))
+  if (!is(x, "covRleList")) {
+    seqlevels(x) <- seqlevels(seqinfo)
+    seqinfo(x) <- seqinfo
+
+    all_readl_lengths <- readWidths(x)
+    read_lengths <- sort(unique(all_readl_lengths))
+    if (verbose) message("Readlength:", appendLF = FALSE)
+    list <- list()
+    for (i in read_lengths) {
+      if (verbose) message(", ", i, appendLF = FALSE)
+      list <- c(list, covRleFromGR(x[all_readl_lengths == i],
+                                   weight = weight,
+                                   ignore.strand = !split.by.strand))
+    }
+    x <- covRleList(list, fraction = read_lengths)
+  }
+  file <- paste0(gsub("\\.covrds", "", file, ignore.case = TRUE), ".covrds")
+  saveRDS(x, file = file)
 }
 
 #' Store GRanges object as .bedo

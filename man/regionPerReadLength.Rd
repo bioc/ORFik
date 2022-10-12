@@ -20,9 +20,13 @@ regionPerReadLength(
 \item{grl}{a \code{\link{GRangesList}} object
 with usually either leaders, cds', 3' utrs or ORFs}
 
-\item{reads}{a \code{\link{GAlignments}} or \code{\link{GRanges}} object of
-RiboSeq, RnaSeq etc. Weigths for scoring is default the 'score'
-column in 'reads'}
+\item{reads}{a \code{\link{GAlignments}}, \code{\link{GRanges}}, or
+precomputed coverage as \code{\link{covRleList}}
+(where names of covRle objects are readlengths) of
+RiboSeq, RnaSeq etc. \cr Weigths for scoring is default the 'score'
+column in 'reads'. Can also be random access paths to bigWig or fstwig file.
+Do not use random access for more than a few genes, then loading the entire files
+is usually better.}
 
 \item{acceptedLengths}{an integer vector (NULL), the read lengths accepted.
 Default NULL, means all lengths accepted.}
@@ -47,11 +51,10 @@ You can also assign a score column manually.}
 ranges that does not have any coverage (0 reads on them),
 this makes it faster to run.}
 
-\item{drop.zero.dt}{logical FALSE, if TRUE and as.data.table is TRUE,
-remove all 0 count positions.
+\item{drop.zero.dt}{logical, default TRUE.
+If TRUE and as.data.table is TRUE, remove all 0 count positions.
 This greatly speeds up and most importantly, greatly reduces memory usage.
-Will not change any plots, unless 0 positions are used in some sense.
-(mean, median, zscore coverage will only scale differently)}
+Will not change any plots, unless 0 count positions are used in some sense.}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam()}
 }
