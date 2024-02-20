@@ -134,6 +134,7 @@ experiment <- setClass("experiment",
 #' column of data (like replicate or stage) is not shown, if all
 #' values are identical in that column. Filepaths are also never shown.
 #' @param object an ORFik \code{\link{experiment}}
+#' @importFrom withr local_options
 #' @export
 #' @return print state of experiment
 setMethod("show",
@@ -147,6 +148,7 @@ setMethod("show",
             if (object@author != "") cat(object@author, "et al. \n")
 
             obj <- as.data.table(as(object@listData, Class = "DataFrame"))
+            withr::local_options(list(datatable.print.class = FALSE))
             if (nrow(obj) > 0) {
               obj <- obj[,-c("filepath", "index")]
               if ("Run" %in% colnames(obj)) obj <- obj[,-c("Run")]
@@ -313,7 +315,7 @@ setMethod("libFolder",
           }
 )
 
-#' Get ORFik experiment library folder
+#' Get SRR/DRR/ERR run ids from ORFik experiment
 #'
 #' @param x an ORFik \code{\link{experiment}}
 #' @return a character vector of runIDs, "" if not existing.
