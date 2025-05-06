@@ -156,7 +156,6 @@ ofst_merge <- function(file_paths,
     stop("Some libraries had columns not in others! ",
          "It is only allowed to merge ofst files with equal set of columns!")
   }
-  browser()
   row_numbers <- unlist(lapply(file_paths, function(x)
     data.table(fst::metadata_fst(x)$nrOfRows)))
   dt_max_index_size <- 2^31
