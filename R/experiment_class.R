@@ -111,6 +111,7 @@ experiment <- setClass("experiment",
                                   assembly = "character",
                                   author = "character",
                                   expInVarName = "logical",
+                                  uniqueMappers = "logical",
                                   envir = "environment",
                                   resultFolder = "character"),
                        contains = "DFrame")
@@ -130,10 +131,11 @@ setMethod("show",
           function(object) {
             type <- ifelse(length(unique(object@listData$libtype)) == 1,
                            "type", "types")
-            cat("experiment:", object@experiment, "with",
-                length(unique(object@listData$libtype)), "library", type, "and",
+            cat("ORFik experiment:", object@experiment, if (object@author != "") paste0("(", object@author, " et al.)"), "\n")
+            cat("Libraries: ", length(unique(object@listData$libtype)), "library", type, "and",
                 length(object@listData$libtype), "runs","\n")
-            if (object@author != "") cat(object@author, "et al. \n")
+            cat("Organism:", organism(object), ifelse(object@assembly != "", paste0("(", object@assembly,")"), ""), "\n")
+            if (uniqueMappers(object)) cat("Unique mappers status: Only unique\n")
 
             obj <- as.data.table(as(object@listData, Class = "DataFrame"))
             withr::local_options(list(datatable.print.class = FALSE))
@@ -267,7 +269,7 @@ setMethod("resFolder",
 )
 
 
-#' Get ORFik experiment QC folder path
+#' Get path to ORFik experiment QC folder
 #'
 #' @param x an ORFik \code{\link{experiment}}
 #' @return a character path
@@ -282,18 +284,21 @@ setMethod("QCfolder",
           }
 )
 
-#' Get ORFik experiment library folder
+#' Get path to ORFik experiment library folder
 #'
 #' @param x an ORFik \code{\link{experiment}}
-#' @param mode character, default "first". Alternatives: "unique", "all".
+#' @param mode character, default "first". Alternatives: "unique", "all". Unique
+#' means the unique directories, not to be confused with unique_mappers argument below.
+#' @param unique_mappers logical, default uniqueMappers(x) If true appends unique_mappers to path
 #' @return a character path
 #' @export
-setGeneric("libFolder", function(x, mode = "first") standardGeneric("libFolder"))
+setGeneric("libFolder", function(x, mode = "first", unique_mappers = uniqueMappers(x))
+  standardGeneric("libFolder"))
 
 #' @inherit libFolder
 setMethod("libFolder",
           "experiment",
-          function(x, mode = "first") {
+          function(x, mode = "first", unique_mappers = uniqueMappers(x)) {
             path <-
             if (mode == "first") {
               dirname(x$filepath[1])
@@ -302,7 +307,72 @@ setMethod("libFolder",
             } else if (mode == "all") {
               dirname(x$filepath)
             } else stop("argument 'mode', must be either first, unique or all")
+            if (unique_mappers) path <- file.path(path, "unique_mappers")
             return(path)
+          }
+)
+
+#' Get path to ORFik experiment genome reference folder
+#'
+#' @param x an ORFik \code{\link{experiment}}
+#' @return a character path
+#' @export
+setGeneric("refFolder", function(x) standardGeneric("refFolder"))
+
+#' @inherit refFolder
+setMethod("refFolder",
+          "experiment",
+          function(x) {
+            return(dirname(x@fafile))
+          }
+)
+
+#' Get ORFik uniqueMappers status
+#'
+#' Do you want to load/save libraries with unique mappers only,
+#' for bam it subsets from file, for other formats it presumes a
+#' directory './unique_mappers' relative to bam directory.
+#' @param x an ORFik \code{\link{experiment}}
+#' @return a logical (length 1)
+#' @export
+setGeneric("uniqueMappers", function(x) standardGeneric("uniqueMappers"))
+
+#' Set ORFik uniqueMappers status
+#'
+#' Do you want to load/save libraries with unique mappers only,
+#' for bam it subsets from file, for other formats it presumes a
+#' directory './unique_mappers' relative to bam directory.
+#' @param x an ORFik \code{\link{experiment}}
+#' @param value a logical (length 1) (NA values not allowed)
+#' @return an ORFik \code{\link{experiment}} with updated uniqueMappers
+#' @export
+setGeneric("uniqueMappers<-", function(x, value) standardGeneric("uniqueMappers<-"))
+
+#' @inherit uniqueMappers
+setMethod("uniqueMappers",
+          "experiment",
+          function(x) {
+            x@uniqueMappers
+          }
+)
+
+#' @inherit uniqueMappers
+setMethod("uniqueMappers",
+          "NULL",
+          function(x) {
+            FALSE
+          }
+)
+
+#' @inherit uniqueMappers<-
+setMethod("uniqueMappers<-",
+          "experiment",
+          function(x, value) {
+            stopifnot(is.logical(value))
+            stopifnot(length(value) == 1)
+            if (anyNA(value)) stop("uniqueMappers must be non NA logical")
+            x@uniqueMappers <- value
+            return(x)
           }
 )
 
@@ -359,20 +429,25 @@ setMethod("seqnames",
 )
 
 
-#' Get ORFik experiment QC folder path
+#' Get ORFik experiment gene symbols
 #'
+#' Loads premade fst table at path:
+#' file.path(refFolder(x), "gene_symbol_tx_table.fst")
 #' @param x an ORFik \code{\link{experiment}}
 #' @return a data.table with gene id, gene symbols and tx ids (3 columns)
 #' @export
+#' @examples
+#' df <- ORFik.template.experiment()
+#' symbols(df)
 setGeneric("symbols", function(x) standardGeneric("symbols"))
 
 #' @inherit QCfolder
 setMethod("symbols",
           "experiment",
           function(x) {
-            cand_path <- file.path(dirname(x@txdb), "gene_symbol_tx_table.fst")
+            cand_path <- file.path(refFolder(x), "gene_symbol_tx_table.fst")
             if (file.exists(cand_path)) {
-              return(as.data.table(read_fst(cand_path)))
+              return(read_fst(cand_path, as.data.table = TRUE))
             } else {
               message("Gene symbols not created, run ",
               "ORFik:::makeTxdbFromGenome(gene_symbols = TRUE)")
@@ -387,11 +462,12 @@ setMethod("symbols",
 #' from either: libtype, condition, stage and fraction.
 #' @param object an ORFik \code{\link{experiment}}
 #' @param batch.correction.design logical, default FALSE. If true,
-#' add replicate as a second design factor (only if >= 2 replicates exists).
+#' add replicate as a trailing design factor (only if >= 2 replicates exists).
 #' @param as.formula logical, default FALSE. If TRUE, return as formula
 #' @param multi.factor logical, default TRUE If FALSE, return first factor only
-#' (+ rep, if batch.correction.design is true). Order of picking is:
-#' libtype, if not then: stage, if not then: condition, if not then: fraction.
+#' (+ rep, if batch.correction.design is true). Order of picking for single.factor
+#' is: does libtype have > 1 level, if not then: stage, if not then: condition,
+#' if not then: fraction.
 #' @return a character (name of column) or a formula
 #' @export
 #' @examples
@@ -418,17 +494,21 @@ setMethod("design",
               stop("Malformed experiment, you need a column that seperates the libraries (> 1 unique value")
             factors <- colnames(dt)
 
+            factors <- c(factors[!(factors %in% "rep")], factors[factors %in% "rep"][1])
             if (!multi.factor) {
               factors <- c(factors[!(factors %in% "rep")][1], factors[factors %in% "rep"][1])
-              factors <- factors[!is.na(factors)]
             }
+            factors <- factors[!is.na(factors)]
+
             if (as.formula) {
-              return(as.formula(paste(c("~", paste(factors,
-                                                   collapse = " + ")),
-                                      collapse = " ")))
+              return(as.formula.vector(factors))
             } else return(factors)
           }
 )
+
+as.formula.vector <- function(x) {
+  as.formula(paste(c("~", paste(x, collapse = " + ")), collapse = " "))
+}
 
 #' Get experiment design model matrix
 #'
@@ -441,10 +521,46 @@ setMethod("design",
 #' @importFrom stats model.matrix
 #' @examples
 #' df <- ORFik.template.experiment()
-#' model.matrix(df)
+#' model.matrix(df) # Single factor, default
+#' model.matrix(df, design(df, as.formula = TRUE, multi.factor = TRUE))
 setMethod("model.matrix",
           "experiment",
           function(object, design_formula = design(object, as.formula = TRUE)) {
             stats::model.matrix(design_formula, data = object)
 })
+
+setMethod("model.matrix",
+          "experiment",
+          function(object, design_formula = design(object, as.formula = TRUE)) {
+            stats::model.matrix(design_formula, data = object)
+          })
+
+#' Get canonical isoforms of organism
+#'
+#' Search for a txt file at location:
+#' file.path(refFolder(x), "canonical_isoforms.txt"), where x is an
+#' ORFik experiment.
+#' @param x an ORFik \code{\link{experiment}}
+#' @return a character vector
+#' @export
+#' @examples
+#' df <- ORFik.template.experiment()
+#' canonical_isoforms(df)
+setGeneric("canonical_isoforms", function(x) standardGeneric("canonical_isoforms"))
+
+#' @inherit canonical_isoforms
+setMethod("canonical_isoforms",
+          "experiment",
+          function(x) {
+            path <- file.path(refFolder(x), "canonical_isoforms.txt")
+            if (file.exists(path)) {
+              isoforms <- fread(path, header = FALSE)[[1]]
+            } else {
+              warning("No canonical isoform file exists, will use longest isoform!")
+              isoforms <- filterTranscripts(x, 0, 0, 0)
+            }
+            return(isoforms)
+          }
+)
+
 

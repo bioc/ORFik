@@ -300,39 +300,37 @@ save.fstwig <- function(x, file, compress = 50) {
 }
 
 export.cov <- function(x, file, seqinfo, split.by.strand = TRUE,
-                       weight = "score") {
+                       weight = "score", format = "qs") {
   stopifnot(is(seqinfo, "Seqinfo"))
+  stopifnot(format %in% c("qs", "rds"))
   if (!is(x, "covRle") & !is(x, "RleList")) {
     seqlevels(x) <- seqlevels(seqinfo)
     seqinfo(x) <- seqinfo
     x <- covRleFromGR(x, weight = weight, ignore.strand = !split.by.strand)
   }
   seqinfo(x) <- seqinfo
-  file <- paste0(gsub("\\.covrds", "", file, ignore.case = TRUE), ".covrds")
-  saveRDS(x, file = file)
+
+  format <- paste0("cov", format)
+  file <- paste0(gsub(paste0("\\.", format, "$"), "", file, ignore.case = TRUE),
+                 ".", format)
+  save_RDSQS(x, file = file)
 }
 
 export.covlist <- function(x, file, seqinfo, split.by.strand = TRUE,
-                       weight = "score", verbose = TRUE) {
-  stopifnot(is(seqinfo, "Seqinfo"))
+                       weight = "score", verbose = TRUE, format = "qs") {
+
   if (!is(x, "covRleList")) {
+    stopifnot(is(seqinfo, "Seqinfo"))
     seqlevels(x) <- seqlevels(seqinfo)
     seqinfo(x) <- seqinfo
-
-    all_readl_lengths <- readWidths(x)
-    read_lengths <- sort(unique(all_readl_lengths))
-    if (verbose) message("Readlength:", appendLF = FALSE)
-    list <- list()
-    for (i in read_lengths) {
-      if (verbose) message(", ", i, appendLF = FALSE)
-      list <- c(list, covRleFromGR(x[all_readl_lengths == i],
-                                   weight = weight,
-                                   ignore.strand = !split.by.strand))
-    }
-    x <- covRleList(list, fraction = read_lengths)
+    x <- covRleListFromGR(x, weight = weight, ignore.strand = !split.by.strand,
+                          verbose = verbose)
   }
-  file <- paste0(gsub("\\.covrds", "", file, ignore.case = TRUE), ".covrds")
-  saveRDS(x, file = file)
+
+  format <- paste0("cov", format)
+  file <- paste0(gsub(paste0("\\.", format, "$"), "", file, ignore.case = TRUE),
+                 ".", format)
+  save_RDSQS(x, file = file)
 }
 
 #' Store GRanges object as .bedo

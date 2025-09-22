@@ -9,6 +9,7 @@ orfFrameDistributions(
   type = "pshifted",
   weight = "score",
   orfs = loadRegion(df, part = "cds"),
+  libraries = outputLibs(df, type = type, output.mode = "envirlist"),
   BPPARAM = BiocParallel::bpparam()
 )
 }
@@ -21,6 +22,9 @@ warning if not pshifted might crash if too many read lengths!}
 \item{weight}{which column in reads describe duplicates, default "score".}
 
 \item{orfs}{GRangesList, default loadRegion(df, part = "cds")}
+
+\item{libraries}{a list of loaded libraries, default:
+outputLibs(df, type = type, output.mode = "envirlist")}
 
 \item{BPPARAM}{how many cores/threads to use? default: bpparam().
 To see number of threads used, do \code{bpparam()$workers}.
@@ -40,7 +44,7 @@ Can be used to automize re-shifting of read lengths (find read lengths
 where frame 0 is not the best frame over the entire cds)
 }
 \examples{
-df <- ORFik.template.experiment()[3,]
+df <- ORFik.template.experiment()[9,]
 dt <- orfFrameDistributions(df, BPPARAM = BiocParallel::SerialParam())
 ## Check that frame 0 is best frame for all
 all(dt[frame == 0,]$best_frame)

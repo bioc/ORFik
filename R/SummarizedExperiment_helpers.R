@@ -30,13 +30,18 @@
 #' @param type default: "count" (raw counts matrix), alternative is "fpkm",
 #' "log2fpkm" or "log10fpkm"
 #' @param lib.type a character(default: "default"), load files in experiment
-#' or some precomputed variant, either "ofst", "bedo", "bedoc" or "pshifted".
+#' or some precomputed variant, either "ofst", "pshifted" or "cov"
 #' These are made with ORFik:::convertLibs() or shiftFootprintsByExperiment().
 #' Can also be custom user made folders inside the experiments bam folder.
+#' Format "cov" (i.e. covRle format) is by far the fastest to use if existing.
 #' @param weight numeric or character, a column to score overlaps by. Default "score",
 #' will check for a metacolumn called "score" in libraries. If not found,
 #' will not use weights.
 #' @param forceRemake logical, default FALSE. If TRUE, will not look for existing file count table files.
+#' @param libraries The call to output libraries, the input is not used! Default:
+#' outputLibs(df, chrStyle = seqinfo(df), type = lib.type, force = force,
+#'  library.names = library.names, BPPARAM = BPPARAM)
+#' @param format character, default "qs", alternative: "rds". Which format to save summarizedExperiment.
 #' @param BPPARAM how many cores/threads to use? default: BiocParallel::SerialParam()
 #' @import SummarizedExperiment
 #' @export
@@ -63,64 +68,41 @@ makeSummarizedExperimentFromBam <- function(df, saveName = NULL,
                                             lib.type = "ofst",
                                             weight = "score", forceRemake = FALSE,
                                             force = TRUE, library.names = bamVarName(df),
+                                            libraries = outputLibs(df, chrStyle = seqinfo(df),
+                                                                   paths = filepath(df, lib.type, suffix_stem = c("", "_pshifted")),
+                                                                   type = lib.type, force = force,
+                                                                   library.names = library.names,
+                                                                   BPPARAM = BPPARAM),
+                                            format = "qs",
                                             BPPARAM = BiocParallel::SerialParam()) {
+
   if(!is.null(saveName)) {
-    if (file_ext(saveName) != "rds") saveName <- paste0(saveName,".rds")
+    if (file_ext(saveName) != format) saveName <- paste0(saveName,".", format)
     if (file.exists(saveName) & !forceRemake) {
       message("Loading existing count table, set forceRemake=TRUE if you want to remake")
-      return(readRDS(saveName))
+      return(read_RDSQS(saveName))
     }
   }
-
-  stopifnot(length(geneOrTxNames) == 1)
-  stopifnot(geneOrTxNames %in% c("tx", "gene"))
   validateExperiments(df, library.names)
+  tx <- loadRegionCustom(df, region, geneOrTxNames, longestPerGene)
 
-  if (is(region, "character")) {
-    txdb <- loadTxdb(df)
-    if (longestPerGene) {
-      longestTxNames <- filterTranscripts(txdb, 0, 1, 0, longestPerGene = TRUE)
-      tx <- loadRegion(txdb, region, names.keep = longestTxNames)
-    } else tx <- loadRegion(txdb, region)
-  } else tx <- region
 
-  if (geneOrTxNames == "gene") {
-    if (!is(region, "character")) txdb <- loadTxdb(df)
-    names(tx) <- txNamesToGeneNames(names(tx), txdb)
-  }
-
-  varNames <- library.names
-  outputLibs(df, chrStyle = tx, type = lib.type, force = force,
-             library.names = library.names,
-             BPPARAM = BPPARAM)
-
-  rawCounts <- data.table(matrix(0, ncol = length(varNames),
+  rawCounts <- data.table(matrix(0, ncol = length(library.names),
                                  nrow = length(tx)))
+  colnames(rawCounts) <- library.names
   message("    - Counting overlaps")
-  for (i in seq(length(varNames))) { # For each sample
-    message(varNames[i])
+  envir <- envExp(df)
+  force(libraries)
+  for (lib in library.names) { # For each sample
+    message(lib)
     if (is.character(weight) & length(weight) == 1) {
-      if (!(weight %in% colnames(mcols(get(varNames[i], envir = envExp(df))))))
-        weight <- NULL
+      has_no_weights <- !(weight %in% colnames(mcols(get_lib_from_env(lib, envir))))
+      if (has_no_weights) weight <- NULL
     }
-
-    co <- countOverlapsW(tx, get(varNames[i], envir = envExp(df)), weight = weight)
-    rawCounts[, (paste0("V",i)) := co]
+    rawCounts[, (paste0(lib)) := countOverlapsW(tx, get_lib_from_env(lib, envir), weight = weight)]
   }
-  mat <- as.matrix(rawCounts);colnames(mat) <- NULL
+  res <- SummarizedExperimentExp(df, rawCounts, tx, library.names)
 
-  colData <- DataFrame(SAMPLE = as.factor(bamVarName(df, TRUE)),
-                       row.names=varNames)
-  # Add sample columns
-  if (!is.null(df$rep)) colData$replicate <- as.factor(df$rep)
-  if (!is.null(df$stage)) colData$stage <- as.factor(df$stage)
-  if (!is.null(df$libtype)) colData$libtype <- as.factor(df$libtype)
-  if (!is.null(df$condition)) colData$condition <- as.factor(df$condition)
-  if (!is.null(df$fraction))
-    colData$fraction <- as.factor(as.character(df$fraction))
-
-  res <- SummarizedExperiment(assays=list(counts=mat), rowRanges=tx,
-                              colData=colData)
   if (type %in% c("fpkm", "log2fpkm", "log10fpkm")) {
     res <- as.data.table(scoreSummarizedExperiment(res, score = type))
     rownames(res) <- names(tx)
@@ -129,10 +111,50 @@ makeSummarizedExperimentFromBam <- function(df, saveName = NULL,
     if (!dir.exists(dirname(saveName))) {
       dir.create(dirname(saveName), showWarnings = FALSE, recursive = TRUE)
     }
-    if (file_ext(saveName) != "rds") saveName <- paste0(saveName,".rds")
-    saveRDS(res, file = saveName)
+    if (file_ext(saveName) != format) saveName <- paste0(saveName, ".", format)
+    save_RDSQS(res, file = saveName)
   }
   return(res)
+}
+
+SummarizedExperimentExp <- function(df, rawCounts, rowRanges, library.names = bamVarName(df)) {
+  mat <- as.matrix(rawCounts);colnames(mat) <- NULL
+  return(SummarizedExperiment(assays=list(counts=mat), rowRanges=rowRanges,
+                              colData=colDataFromExp(df, library.names)))
+}
+
+colDataFromExp <- function(df, library.names = bamVarName(df)) {
+  colData <- DataFrame(SAMPLE = as.factor(bamVarName(df, TRUE)),
+                       row.names=library.names)
+  # Add sample columns
+  if (!is.null(df$rep)) colData$replicate <- as.factor(df$rep)
+  if (!is.null(df$stage)) colData$stage <- as.factor(df$stage)
+  if (!is.null(df$libtype)) colData$libtype <- as.factor(df$libtype)
+  if (!is.null(df$condition)) colData$condition <- as.factor(df$condition)
+  if (!is.null(df$fraction)) colData$fraction <- as.factor(as.character(df$fraction))
+  return(colData)
+}
+
+get_lib_from_env <- function(lib_variable_name, envir = .GlobalEnv) {
+  return(get(lib_variable_name, envir))
+}
+
+loadRegionCustom <- function(df, region, geneOrTxNames = "tx", longestPerGene= TRUE) {
+  stopifnot(length(geneOrTxNames) == 1)
+  stopifnot(geneOrTxNames %in% c("tx", "gene"))
+  if (is(region, "character")) {
+    txdb <- loadTxdb(df)
+    if (longestPerGene) {
+      longestTxNames <- filterTranscripts(txdb, 0, 0, 0, longestPerGene = TRUE)
+      tx <- loadRegion(txdb, region, names.keep = longestTxNames)
+    } else tx <- loadRegion(txdb, region)
+  } else tx <- region
+
+  if (geneOrTxNames == "gene") {
+    if (!is(region, "character")) txdb <- loadTxdb(df)
+    names(tx) <- txNamesToGeneNames(names(tx), txdb)
+  }
+  return(tx)
 }
 
 #' Helper function for makeSummarizedExperimentFromBam
@@ -216,7 +238,7 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' see if any start with "countTable_", if so, subset. If loaded as SummarizedExperiment
 #' or deseq, the colData will be made from ORFik.experiment information.
 #' @param df an ORFik \code{\link{experiment}} or path to folder with
-#' countTable, use path if not same folder as experiment libraries. Will subset to
+#' countTables, use path if not same folder as experiment libraries. Will subset to
 #' the count tables specified if df is experiment. If experiment has 4 rows and you subset it
 #' to only 2, then only those 2 count tables will be outputted.
 #' @param region a character vector (default: "mrna"), make raw count matrices
@@ -240,6 +262,7 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' custom count tables with \code{\link{makeSummarizedExperimentFromBam}}.
 #' Always make the location of the folder directly
 #' inside the bam file directory!
+#' @param full_path Full path to countTable, default: countTablePath(df, region, count.folder)
 #' @return a data.table/SummarizedExperiment/DESeq object
 #' of columns as counts / normalized counts per library, column name
 #' is name of library. Rownames must be unique for now. Might change.
@@ -268,12 +291,59 @@ scoreSummarizedExperiment <- function(final, score = "transcriptNormalized",
 #' # countTable(df, "mrna", type = "deseq")
 countTable <- function(df, region = "mrna", type = "count",
                        collapse = FALSE,
-                       count.folder = "default") {
+                       count.folder = "default",
+                       full_path = countTablePath(df, region, count.folder)) {
+  df.temp <- attr(full_path, "experiment")
+  if (length(full_path) == 1) {
+    res <- read_RDSQS(full_path)
+
+    # Subset to samples wanted
+    if (!is.null(df.temp)) {
+      if ((ncol(res) != nrow(df.temp))) {
+        res <- subset_count_table(res, df.temp)
+      }
+    }
+
+    is_ribo <- any(c("RFP", "RPF", "LSU","80S") %in% colData(res)$libtype, na.rm = TRUE)
+    if(count.folder != "pshifted" & is_ribo)
+      message("Loading default 80S counts, update count.folder to pshifted if wanted?")
+    if (type == "count") return(as.data.table(assay(res)))
+
+    res <- metadata_count_table(res, df.temp, type)
+    # Give important sanity check info:
+
+    # Decide output format
+    if (type == "summarized") return(res)
+    if (type == "deseq") {
+      # remove replicate from formula
+      formula <- colnames(colData(res))
+      if ("replicate" %in% formula)
+        formula <- formula[-grep("replicate", formula)]
+      formula <- as.formula(paste(c("~", paste(formula,
+                                  collapse = " + ")), collapse = " "))
+      return(DESeqDataSet(res, design = formula))
+    }
+    ress <- scoreSummarizedExperiment(res, type, collapse)
+    if (is(ress, "matrix")) {
+      ress <- as.data.table(ress)
+    } else { # is deseq
+      ress <- as.data.table(assay(ress))
+    }
+    rownames(ress) <- names(ranges(res))
+    return(ress)
+  } else if (length(full_path) > 1) {
+    message(paste("More than 1 count table: ", df, collapse = ", "))
+    stop("Folder contains multiple count tables for the same region, ORFik does not
+         know which to pick. Delete or move the one that is not supposed to be there!")
+  }
+}
+
+countTablePath <- function(df, region = "mrna", count.folder = "default") {
   # TODO fix bug if deseq!
-  df.temp <- NULL
+  full_path <- experiment <- NULL
   if (is(df, "experiment")) {
     if (nrow(df) == 0) stop("df experiment has 0 rows (samples)!")
-    df.temp <- df
+    experiment <- df
     df <-
       if (count.folder == "default") {
         QCfolder(df)
@@ -281,64 +351,36 @@ countTable <- function(df, region = "mrna", type = "count",
   }
   if (is(df, "character")) {
     if (dir.exists(df)) {
-      df <- list.files(path = df, pattern = paste0(region, ".rds"),
+      full_path <- list.files(path = df, pattern = paste0(region, "\\.qs$"),
                        full.names = TRUE)
-      if (length(df) > 1) {
-        hits <- grep("^countTable_", basename(df))
+      if (length(full_path) == 0) {
+        full_path <- list.files(path = df, pattern = paste0(region, "\\.rds$"),
+                         full.names = TRUE)
+      }
+      if (length(full_path) > 1) {
+        hits <- grep("^countTable_", basename(full_path))
         if (length(hits) == 1) {
-          df <- df[hits]
+          full_path <- full_path[hits]
         }
       }
-    }
-    if (length(df) == 1) {
-      res <- readRDS(df)
-      # Subset to samples wanted
-      if (!is.null(df.temp)) {
-        if ((ncol(res) != nrow(df.temp))) {
-          res <- subset_count_table(res, df.temp)
-        }
-      }
-      res <- metadata_count_table(res, df.temp, type)
-      # Give important sanity check info:
-      is_ribo <- any(c("RFP", "RPF", "LSU","80S") %in% colData(res)$libtype, na.rm = TRUE)
-      if(count.folder != "pshifted" & is_ribo)
-        message("Loading default 80S counts, update count.folder to pshifted if wanted?")
-
-      # Decide output format
-      if (type == "summarized") return(res)
-      if (type == "deseq") {
-        # remove replicate from formula
-        formula <- colnames(colData(res))
-        if ("replicate" %in% formula)
-          formula <- formula[-grep("replicate", formula)]
-        formula <- as.formula(paste(c("~", paste(formula,
-                                    collapse = " + ")), collapse = " "))
-        return(DESeqDataSet(res, design = formula))
-      }
-      ress <- scoreSummarizedExperiment(res, type, collapse)
-      if (is(ress, "matrix")) {
-        ress <- as.data.table(ress)
-      } else { # is deseq
-        ress <- as.data.table(assay(ress))
-      }
-      rownames(ress) <- names(ranges(res))
-      return(ress)
-    } else if (length(df) > 1) {
-      message(paste("More than 1 count table: ", df))
-      stop("Folder contains multiple count tables for the same region, ORFik does not
-           know which to pick. Delete or move the one that is not supposed to be there!")
     }
   }
-  message(paste("Invalid count table:", df))
-  stop("Table not found!",
-      " Must be either: filepath to directory with defined countTable of region, the full path
+
+  if (length(full_path) == 0) {
+    message(paste("Invalid count table directory:", df))
+    stop("Table not found!",
+         " Must be either: filepath to directory with defined countTable of region, the full path
        to the countTable, run ORFikQC to get default countTables!")
+  }
+
+  attr(full_path, "experiment") <- experiment
+  return(full_path)
 }
 
 #' Make a list of count matrices from experiment
 #'
 #' By default will make count tables over mRNA, leaders, cds and trailers for
-#' all libraries in experiment. region
+#' all libraries in experiment. Saved as "qs" or "rds" format files.
 #'
 #' @inheritParams makeSummarizedExperimentFromBam
 #' @inheritParams QCreport
@@ -348,6 +390,9 @@ countTable <- function(df, region = "mrna", type = "count",
 #' for example uORFs or a subset of cds etc.
 #' @param rel.dir relative output directory for out.dir, default:
 #' "QC_STATS". For pshifted, write "pshifted".
+#' @param path_prefix the prefix names of tables, default:
+#' if (!is.null(out.dir) {pasteDir(file.path(out.dir, rel.dir, "countTable_"))} else NULL,
+#' i.e. directory + countTable_ or NULL if out.dir is NULL.
 #' @param BPPARAM how many cores/threads to use? default: bpparam()
 #' @return a list of data.table, 1 data.table per region. The regions
 #' will be the names the list elements.
@@ -357,7 +402,7 @@ countTable <- function(df, region = "mrna", type = "count",
 #' ##Make experiment
 #' df <- ORFik.template.experiment()
 #' ## Create count tables for all default regions
-#' # countTable_regions(df)
+#' countTable_regions(df, NULL)
 #' ## Pshifted reads (first create pshiftead libs)
 #' # countTable_regions(df, lib.type = "pshifted", rel.dir = "pshifted")
 countTable_regions <- function(df, out.dir = libFolder(df),
@@ -369,26 +414,35 @@ countTable_regions <- function(df, out.dir = libFolder(df),
                                weight = "score",
                                rel.dir = "QC_STATS", forceRemake = FALSE,
                                library.names = bamVarName(df),
+                               format = "qs",
+                               path_prefix = if (!is.null(out.dir)) {pasteDir(file.path(out.dir, rel.dir, "countTable_"))} else {NULL},
+                               libraries = outputLibs(df, chrStyle = seqinfo(df),
+                                                      paths = filepath(df, lib.type, suffix_stem = c("", "_pshifted")),
+                                                      type = lib.type, force = FALSE,
+                                                      library.names = library.names,
+                                                      BPPARAM = BiocParallel::SerialParam()),
                                BPPARAM = bpparam()) {
 
-  countDir <- pasteDir(file.path(out.dir, rel.dir, "countTable_"))
   libs <- bplapply(
     regions,
-    function(region, countDir, df, geneOrTxNames, longestPerGene, forceRemake,
-             library.names) {
+    function(region, path, df, geneOrTxNames, longestPerGene, forceRemake,
+             library.names, libraries) {
      message("- Creating read count tables for region:")
      message("  - ", region)
-     path <- paste0(countDir, region)
+     if (!is.null(path)) path <- paste0(path, region)
      makeSummarizedExperimentFromBam(df, region = region,
                                      geneOrTxNames = geneOrTxNames,
                                      longestPerGene = longestPerGene,
                                      saveName = path, lib.type = lib.type,
                                      library.names = library.names,
-                                     forceRemake = forceRemake, force = FALSE)
+                                     forceRemake = forceRemake, force = FALSE,
+                                     libraries = libraries,
+                                     format = format)
     },
-    countDir = countDir, df = df,
+    path = path_prefix, df = df,
     geneOrTxNames = geneOrTxNames, library.names = library.names,
-    longestPerGene = longestPerGene, forceRemake = forceRemake, BPPARAM = BPPARAM
+    longestPerGene = longestPerGene, libraries = libraries,
+    forceRemake = forceRemake, BPPARAM = BPPARAM
   )
   names(libs) <- regions
   return(libs)

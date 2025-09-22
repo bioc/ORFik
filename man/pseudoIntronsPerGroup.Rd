@@ -20,4 +20,7 @@ If an intron is of length < 'width' * 2, it will not be split into pseudo.
 \examples{
 tx <- GRangesList(GRanges("1", IRanges(c(1, 150, 1e5, 1e6)), "+"))
 pseudoIntronsPerGroup(tx) # See intron 1 is not split
+tx_2 <- rep(GRangesList(GRanges("1", IRanges(c(1, 150, 1e5, 1e6)), "+")), 2)
+pseudoIntronsPerGroup(tx_2)
+pseudoIntronsPerGroup(tx_2, 1e6)
 }

@@ -156,10 +156,14 @@ alignmentFeatureStatistics <- function(df, type = "ofst", force = TRUE,
 #' @keywords internal
 trim_detection <- function (df, finals,
                             alignment_folder = libFolder(df, "unique")) {
+  found_data <- FALSE
   trim_folders <- file.path(alignment_folder, "..", "trim/")
   if (all(dir.exists(trim_folders))) {
     message("Create raw read counts")
-    raw_data <- rbindlist(lapply(trim_folders, trimming.table))
+    raw_data <- try(rbindlist(lapply(trim_folders, trimming.table)), silent = TRUE)
+    if (!is(raw_data, "try-error")) found_data <- TRUE
+  }
+  if (found_data) {
     matches <- unlist(lapply(X = df$filepath, function(x) {
       match <- sapply(raw_data$raw_library, function(p) grep(pattern = p, x, fixed = TRUE))
       if (isEmpty(match)) NA else names(unlist(match))[1]
@@ -181,7 +185,7 @@ trim_detection <- function (df, finals,
                                           4)
   } else {
     message("Could not find raw read counts of data, setting to NA")
-    message(paste0("No folder called:", trim_folders))
+    message(paste0("No existing fastp json files in folder:", trim_folders))
   }
   return(finals)
 }
@@ -277,6 +281,8 @@ readLengthTable <- function(df, output.dir = NULL, type = "ofst",
 #' where frame 0 is not the best frame over the entire cds)
 #' @inheritParams RiboQC.plot
 #' @param orfs GRangesList, default loadRegion(df, part = "cds")
+#' @param libraries a list of loaded libraries, default:
+#'  outputLibs(df, type = type, output.mode = "envirlist")
 #' @return data.table with columns: fraction (library) frame (0, 1, 2)
 #' score (coverage) length (read length)
 #'    percent (coverage percentage of library)
@@ -284,26 +290,26 @@ readLengthTable <- function(df, output.dir = NULL, type = "ofst",
 #'    best_frame (TRUE/FALSE, is this the best frame per length)
 #' @export
 #' @examples
-#' df <- ORFik.template.experiment()[3,]
+#' df <- ORFik.template.experiment()[9,]
 #' dt <- orfFrameDistributions(df, BPPARAM = BiocParallel::SerialParam())
 #' ## Check that frame 0 is best frame for all
 #' all(dt[frame == 0,]$best_frame)
 orfFrameDistributions <- function(df, type = "pshifted", weight = "score",
                                   orfs = loadRegion(df, part = "cds"),
+                                  libraries = outputLibs(df, type = type, output.mode = "envirlist"),
                                   BPPARAM = BiocParallel::bpparam()) {
-  outputLibs(df, type = type)
+  stopifnot(is(libraries, "list"))
   cds <- orfs
-  libs <- bamVarName(df)
-
   # Frame distribution over all
-  frame_sum_per1 <- bplapply(libs, FUN = function(lib, cds, weight, env) {
-    total <- regionPerReadLength(cds, get(lib, mode = "S4", envir = env),
+  frame_sum_per1 <- bplapply(libraries, FUN = function(lib, cds, weight) {
+    total <- regionPerReadLength(cds, lib,
                                  withFrames = TRUE, scoring = "frameSumPerL",
                                  weight = weight, drop.zero.dt = TRUE)
     total[, length := fraction]
     #hits <- get(lib, mode = "S4")[countOverlaps(get(lib, mode = "S4"), cds) > 0]
-    total[, fraction := rep(lib, nrow(total))]
-  }, cds = cds, weight = weight, env = envExp(df),BPPARAM = BPPARAM)
+    name <- attr(lib, "name_short")
+    total[, fraction := rep(name, nrow(total))]
+  }, cds = cds, weight = weight, BPPARAM = BPPARAM)
   frame_sum_per <- rbindlist(frame_sum_per1)
 
   frame_sum_per$frame <- as.factor(frame_sum_per$frame)
@@ -311,8 +317,8 @@ orfFrameDistributions <- function(df, type = "pshifted", weight = "score",
   frame_sum_per[, percent := (score / sum(score))*100, by = fraction]
   frame_sum_per[, percent_length := (score / sum(score))*100, by = .(fraction, length)]
   frame_sum_per[, best_frame := (percent_length / max(percent_length)) == 1, by = .(fraction, length)]
-  frame_sum_per[, fraction := factor(fraction, levels = libs,
-                                     labels = bamVarName(df, skip.libtype = TRUE), ordered = TRUE)]
+  frame_sum_per[, fraction := factor(fraction, levels = names(libraries),
+                                     labels = gsub("^RFP_", "", names(libraries)), ordered = TRUE)]
 
   frame_sum_per[, fraction := factor(fraction, levels = unique(fraction), ordered = TRUE)]
   frame_sum_per[]

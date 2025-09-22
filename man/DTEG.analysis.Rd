@@ -22,7 +22,9 @@ DTEG.analysis(
   dot.size = 0.4,
   relative.name = paste0("DTEG_plot", plot.ext),
   complex.categories = FALSE,
-  plot_to_console = TRUE
+  plot_to_console = TRUE,
+  fitType = c("parametric", "local", "mean", "glmGamPoi"),
+  lfcShrinkType = "normal"
 )
 }
 \arguments{
@@ -99,6 +101,17 @@ see above for details.}
 
 \item{plot_to_console}{logical, default TRUE. Plot to console before returning,
 set to FALSE to save some run time.}
+
+\item{fitType}{either "parametric", "local", "mean", or "glmGamPoi"
+for the type of fitting of dispersions to the mean intensity.
+See \code{\link{estimateDispersions}} for description.}
+
+\item{lfcShrinkType}{character or NULL. Default "normal", which
+shrinkage to apply to results for low count gene subset.
+This avoids the problem of extreme fold changes,
+ when counts are low. See \link[DESeq2]{lfcShrink}.
+A note for DTEG.analysis function: The interaction term (TE),
+is not shrunked as this is not counts, but a ratio.}
 }
 \value{
 a data.table with columns:
@@ -124,7 +137,8 @@ for more details.\cr
 \details{
 Log fold changes and p-values are created from a Walds test on the comparison contrast described bellow.
 The RNA-seq and Ribo-seq LFC values are shrunken using DESeq2::lfcShrink(type = "normal"). Note
-that the TE LFC values are not shrunken (as following specifications from deltaTE paper).
+that the TE LFC values are not shrunken, since these are ratios and not counts
+(as following specifications from deltaTE paper).
 The adjusted p-values are created using DESEQ pAdjustMethod = "BH" (Benjamini-Hochberg correction).
 All other DESEQ2 arguments are default.\cr\cr
 
@@ -180,6 +194,7 @@ df.rna <- df[df$libtype == "RNA",]
 design(df.rfp) # The experimental design, per libtype
 design(df.rfp)[1] # Default target contrast
 #dt <- DTEG.analysis(df.rfp, df.rna)
+#dt_with_gene_ids <- append_gene_symbols(dt, symbols(df))
 ## If you want to use the pshifted libs for analysis:
 #dt <- DTEG.analysis(df.rfp, df.rna,
 #                    RFP_counts = countTable(df.rfp, region = "cds",

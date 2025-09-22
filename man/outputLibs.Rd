@@ -7,7 +7,7 @@
 outputLibs(
   df,
   type = "default",
-  paths = filepath(df, type),
+  paths = filepath(df, type, only_unique_mappers = only_unique_mappers),
   param = NULL,
   strandMode = 0,
   naming = "minimum",
@@ -18,6 +18,7 @@ outputLibs(
   verbose = TRUE,
   force = TRUE,
   validate_libs = TRUE,
+  only_unique_mappers = uniqueMappers(df),
   BPPARAM = bpparam()
 )
 }
@@ -42,7 +43,8 @@ to default lib folder, some types fall back to other formats if folder does not 
 - Other formats must be loaded directly with fimport}
 
 \item{paths}{character vector, the filpaths to use,
-default \code{filepath(df, type)}. Change type argument if not correct.
+default \code{filepath(df, type, only_unique_mappers = only_unique_mappers)}.
+Change type argument if not what is wanted.
 If that is not enough, then you can also update this argument.
 But be careful about using this directly.}
 
@@ -113,13 +115,19 @@ is loaded correctly already.}
 files exists (i.e. bam files), useful if you are using pshifted ofst etc
 and don't have the bams anymore.}
 
+\item{only_unique_mappers}{logical, default \code{uniqueMappers(df)}.
+Load file of only unique format type, located in './unique_mappers' relative
+to bam files / default files. See ?uniqueMappers for more information.}
+
 \item{BPPARAM}{how many cores/threads to use? default: bpparam().
 To see number of threads used, do \code{bpparam()$workers}.
 You can also add a time remaining bar, for a more detailed pipeline.}
 }
 \value{
 NULL (libraries set by envir assignment), unless output.mode is
-"list" or "envirlist": Then you get a list of the libraries.
+"list" or "envirlist": Then you get a list of the libraries. The library
+objects will have 3 additional attributes, "exp", "filepath"
+and "short_name".
 }
 \description{
 By default loads the original files of the experiment into

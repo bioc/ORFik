@@ -1,8 +1,10 @@
 context("Experiment")
 library(ORFik)
+library(data.table)
 
 df <- ORFik.template.experiment()
 temp <- ORFik.template.experiment(as.temp = TRUE)
+df_z <- ORFik.template.experiment.zf()
 
 dir <- system.file("extdata/Homo_sapiens_sample", "", package = "ORFik")
 exper <- "ORFik"
@@ -50,7 +52,17 @@ test_that("output organism correctly", {
 })
 
 test_that("symbols work correctly", {
-  suppressMessages(expect_equal(symbols(df), data.table::data.table()))
+
+  cds_names <- names(loadRegion(df, "cds"))
+  dt <- data.table(id = cds_names[-1], LFC = seq(5), p.value = 0.05)
+  symbols_dt <- data.table(ensembl_tx_name = cds_names,
+   ensembl_gene_id = txNamesToGeneNames(cds_names, df),
+   external_gene_name = c("ATF4", "AAT1", "ML4", "AST2", "RPL4", "RPL12"))
+  suppressMessages(expect_equal(symbols(df), symbols_dt))
+})
+
+test_that("symbols work correctly empty", {
+  suppressMessages(expect_equal(symbols(df_z), data.table()))
 })
 
 test_that("filepath work as intended", {
@@ -77,10 +89,10 @@ test_that("validateExperiments() work as intended", {
   df2$libtype[10] <- "RNA"
   suppressMessages(expect_error(validateExperiments(df2)))
 })
-
+# To update, just run: capture_output(show(df)) and update text below.
 test_that("Show experiment correctly", {
   expect_identical(capture_output(df, print = TRUE),
-                   "experiment: ORFik with 4 library types and 16 runs \nTjeldnes et al. \n    libtype rep condition\n 1:    CAGE   1    Mutant\n 2:    CAGE   2    Mutant\n 3:    CAGE   1        WT\n 4:    CAGE   2        WT\n 5:     PAS   1    Mutant\n 6:     PAS   2    Mutant\n 7:     PAS   1        WT\n 8:     PAS   2        WT\n 9:     RFP   1    Mutant\n10:     RFP   2    Mutant\n11:     RFP   1        WT\n12:     RFP   2        WT\n13:     RNA   1    Mutant\n14:     RNA   2    Mutant\n15:     RNA   1        WT\n16:     RNA   2        WT")
+                   "ORFik experiment: ORFik (Tjeldnes et al.) \nLibraries:  4 library types and 16 runs \nOrganism: Homo sapiens  \n    libtype rep condition\n 1:    CAGE   1    Mutant\n 2:    CAGE   2    Mutant\n 3:    CAGE   1        WT\n 4:    CAGE   2        WT\n 5:     PAS   1    Mutant\n 6:     PAS   2    Mutant\n 7:     PAS   1        WT\n 8:     PAS   2        WT\n 9:     RFP   1    Mutant\n10:     RFP   2    Mutant\n11:     RFP   1        WT\n12:     RFP   2        WT\n13:     RNA   1    Mutant\n14:     RNA   2    Mutant\n15:     RNA   1        WT\n16:     RNA   2        WT")
 })
 
 test_that("Experiment class loaded/removed as intended to custom environment", {
@@ -150,7 +162,6 @@ test_that("Experiment class correct renaming", {
 })
 
 test_that("filepath find correct paths", {
-  df_z <- ORFik.template.experiment.zf()
   reads <- filepath(df_z[1,], "default")
   reads_as_ofst <- filepath(df_z[1,], "ofst")
   expect_is(reads, "character")

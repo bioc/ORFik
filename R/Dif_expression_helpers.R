@@ -2,8 +2,9 @@ DEG_input_validation <- function(df, counts, design, target.contrast, p.value,
                                  input_check_name = "") {
   message("----------------------")
   message("Input check: ", input_check_name)
+  if (input_check_name == "") input_check_name <- "df"
   if (!is(df, "experiment"))
-    stop("df must be ORFik experiments!")
+    stop(input_check_name, " must be an ORFik experiments!")
   if (!is(design, "character") | length(design) == 0) {
     stop("Design must be character of length > 0, don't use formula as input here")
   }
@@ -33,11 +34,16 @@ DEG_design <- function(design, target.contrast, batch.effect) {
   return(main.design)
 }
 
-DEG_DESeq <- function(counts, main.design, message = "Creating DESeq model:") {
+DEG_DESeq <- function(counts, main.design, message = "Creating DESeq model:",
+                      fitType = c("parametric", "local", "mean", "glmGamPoi")) {
   message(message)
   message("----------------------")
   ddsMat <- DESeqDataSet(se = counts, design = main.design)
-  ddsMat <- DESeq(ddsMat)
+  if (nrow(counts) < 30) {
+    message("Setting fitType to 'mean', too few genes (n=", nrow(counts), ")")
+    fitType <- "mean"
+  }
+  ddsMat <- DESeq(ddsMat, fitType = fitType)
   message("----------------------")
   return(ddsMat)
 }
@@ -63,7 +69,8 @@ DEG_model <- function(df,
                       design = ORFik::design(df),
                       p.value = 0.05,
                       counts = countTable(df, "mrna", type = "summarized"),
-                      batch.effect = TRUE) {
+                      batch.effect = TRUE,
+                      fitType = c("parametric", "local", "mean", "glmGamPoi")) {
   # Input validation
   DEG_input_validation(df, counts, design, target.contrast, p.value)
 
@@ -71,7 +78,7 @@ DEG_model <- function(df,
   main.design <- DEG_design(design, target.contrast, batch.effect)
 
   # DESeq2 model
-  ddsMat_rna <- DEG_DESeq(counts, main.design)
+  ddsMat_rna <- DEG_DESeq(counts, main.design, fitType = fitType)
 }
 
 #' Get DESeq2 model results from DESeqDataSet
@@ -79,7 +86,7 @@ DEG_model <- function(df,
 #'
 #' @param ddsMat_rna a DESeqDataSet object with results stored as metadata columns.
 #' @inheritParams DEG.analysis
-#' @return a data.table
+#' @return a data.table or list
 #' @export
 #' @examples
 #' ## Simple example (use ORFik template, then use only RNA-seq)
@@ -91,41 +98,59 @@ DEG_model <- function(df,
 #' #pairs <- combn.pairs(unlist(df[, target.contrast]))
 #' #dt <- DEG_model_results(ddsMat_rna, target.contrast, pairs)
 DEG_model_results <- function(ddsMat_rna, target.contrast, pairs,
-                              p.value = 0.05) {
+                              p.value = 0.05, lfcShrinkType = "normal",
+                              as.data.table = TRUE) {
   # Do result analysis: per contrast selected
-  dt.between <- data.table()
-  for(i in pairs) {
-    name <- paste("Comparison:", i[1], "vs", i[2])
-    message(name)
-    # Results
-    current.contrast <- c(target.contrast, i[1], i[2])
-    res_rna <- results(ddsMat_rna, contrast = current.contrast)
-    suppressMessages(res_rna <- lfcShrink(ddsMat_rna, contrast = current.contrast,
-                                          res = res_rna, type = "normal"))
-
-    # The differential regulation groupings (padj is padjusted)
-    expressed <- which(res_rna$padj < p.value)
-    n <- rownames(res_rna)
-    Regulation <- rep("No change", nrow(res_rna))
-    Regulation[expressed] <- "Significant" # Old Buffering
-    print(table(Regulation))
-
-    dt.between <-
-      rbindlist(list(dt.between,
-                     data.table(contrast = name,
-                                Regulation = Regulation,
-                                id = rownames(ddsMat_rna),
-                                meanCounts = res_rna$baseMean,
-                                LFC = res_rna$log2FoldChange,
-                                padj = res_rna$padj
-                     )))
-  }
-  dt.between[, Regulation :=
-               factor(Regulation,
-                      levels = c("No change", "Significant"),
-                      ordered = TRUE)]
+  res <- lapply(pairs, function(contrast_pair) {
+    r <- DEG_model_results_contrast(ddsMat_rna, c(target.contrast, contrast_pair),
+                                      lfcShrinkType, verbose = TRUE)
+    print(DEG_model_results_regulation_status(r, p.value))
+    return(r)
+  })
   message("----------------------")
-  return(dt.between)
+  if (as.data.table) {
+    res <- DEG_model_results_as_dt(res, p.value)
+  }
+  return(res)
+}
+
+DEG_model_results_contrast <- function(ddsMat, contrast_vec,
+                                       lfcShrinkType = "normal",
+                                       verbose = TRUE,
+                                       name = paste("Comparison:", contrast_vec[2], "vs", contrast_vec[3])) {
+  stopifnot(length(contrast_vec) == 3 && is.character(contrast_vec))
+
+  if (verbose) {
+    message(name)
+  }
+  # Results
+  res <- results(ddsMat, contrast = contrast_vec)
+  if (!is.null(lfcShrinkType)) {
+    suppressMessages(res <- lfcShrink(ddsMat, contrast = contrast_vec,
+                                      res = res, type = lfcShrinkType))
+  }
+  attr(res, "name") <- name
+  return(res)
+}
+
+DEG_model_results_regulation_status <- function(res, p.value) {
+  Regulation <- length(which(res$padj < p.value))
+  Regulation <- c(Regulation, nrow(res) - Regulation)
+  names(Regulation) <- c("Significant", "No change")
+  return(Regulation)
+}
+
+DEG_model_results_as_dt <- function(res, p.value) {
+  stopifnot(is.list(res) & is.numeric(p.value))
+  rbindlist(lapply(res, function(r) {
+    data.table(contrast = attr(r, "name"),
+               Regulation = fifelse(na_safe(r$padj, "<=", p.value), "Significant", "No change"),
+               id = rownames(r),
+               meanCounts = r$baseMean,
+               LFC = r$log2FoldChange,
+               padj = r$padj
+    )
+  }))
 }
 
 #' Simple Fpkm ratio test DEG
@@ -173,9 +198,6 @@ DTEG_input_validation <- function(df.rfp, df.rna, RFP_counts, RNA_counts,
                                   design, target.contrast, p.value) {
   message("----------------------")
   message("Input check:")
-  if (!is(df.rfp, "experiment") | !is(df.rna, "experiment"))
-    stop("df.rfp and df.rna must be ORFik experiments!")
-
   DEG_input_validation(df.rfp, RFP_counts, design, target.contrast, p.value,
                        "df.rfp")
   DEG_input_validation(df.rna, RNA_counts, design, target.contrast, p.value,
@@ -185,6 +207,20 @@ DTEG_input_validation <- function(df.rfp, df.rna, RFP_counts, RNA_counts,
     stop("Count tables must have equall number of rows!")
   message("----------------------")
   return(invisible(NULL))
+}
+
+DTEG_design <- function(design, target.contrast, batch.effect) {
+  be <- ifelse(batch.effect, "replicate + ", "")
+  te.design <- as.formula(paste0("~ libtype + ", be,
+                                 paste(design, collapse = " + "),
+                                 "+ libtype:", target.contrast))
+  main.design <- as.formula(paste0("~ ", be, paste(design, collapse = " + ")))
+  message("----------------------")
+  message("Full exper. design: ", main.design)
+  message("Interaction design: ", te.design)
+  message("Target -- contrast: ", target.contrast)
+  message("----------------------")
+  return(list(main.design = main.design, te.design = te.design))
 }
 
 DTEG_model_results <- function(ddsMat_rna, ddsMat_ribo, ddsMat_te,
@@ -197,7 +233,6 @@ DTEG_model_results <- function(ddsMat_rna, ddsMat_ribo, ddsMat_te,
     dt <- DTEG_pair_results(ddsMat_te, ddsMat_ribo, ddsMat_rna, contrast_pair, lfcShrinkType, p.value)
     dt <- DTEG_add_regulation_categories(dt, complex.categories)
 
-    print(table(dt$Regulation))
     dt_all_pairs <- rbindlist(list(dt_all_pairs, dt))
   }
 
@@ -207,24 +242,20 @@ DTEG_model_results <- function(ddsMat_rna, ddsMat_ribo, ddsMat_te,
 
 DTEG_pair_results <- function(ddsMat_te, ddsMat_ribo, ddsMat_rna, contrast_vec,
                               lfcShrinkType, p.value, return_type = "data.table") {
-  stopifnot(length(contrast_vec) == 3)
-  name <- paste("Comparison:", contrast_vec[2], "vs", contrast_vec[3])
-  message(name)
 
-  res_te <- results(ddsMat_te, contrast = contrast_vec)
+  res_te <- DEG_model_results_contrast(ddsMat_te, contrast_vec,
+                                        lfcShrinkType = NULL, verbose = TRUE)
 
-  res_ribo <- results(ddsMat_ribo, contrast = contrast_vec)
-  suppressMessages(res_ribo <- lfcShrink(ddsMat_ribo, contrast=contrast_vec,
-                                         res=res_ribo, type = lfcShrinkType))
+  res_ribo <- DEG_model_results_contrast(ddsMat_ribo, contrast_vec,
+                                        lfcShrinkType, verbose = FALSE)
 
-  res_rna <- results(ddsMat_rna, contrast = contrast_vec)
-  suppressMessages(res_rna <- lfcShrink(ddsMat_rna, contrast = contrast_vec,
-                                        res = res_rna, type = lfcShrinkType))
+  res_rna <- DEG_model_results_contrast(ddsMat_rna, contrast_vec,
+                                        lfcShrinkType, verbose = FALSE)
 
   if (return_type != "data.table") {
     return(list(res_te, res_ribo, res_rna))
   }
-  dt <- data.table(contrast = name,
+  dt <- data.table(contrast = attr(res_te, "name"),
                    Regulation = rep("No change", nrow(res_te)),
                    id = rownames(ddsMat_rna),
                    rna.lfc = res_rna$log2FoldChange,
@@ -257,6 +288,60 @@ na_safe <- function(x, op, threshold) {
   }
 }
 
+#' Append gene symbols to a data.table with tx ids
+#'
+#' Main use case is to add gene symbols to data.table outputs from ORFik
+#' with tx ids only, like the DTEG.analysis etc.
+#' @param dt a data.table, must have a id_col with transcript ids
+#' @param symbols_dt the data.table with symbols, must have a column
+#'  with tx, transcript or value in the name. And only 1 of those!
+#' @param extend_id logical, if TRUE, paste together old id from dt,
+#' with the symbol id like: tx_id(symbol_id)
+#' @param id_col character, default "id". The name of the id column in dt.
+#' @return a data.table
+#' @export
+#' @examples
+#' library(data.table)
+#' df <- ORFik.template.experiment()
+#'
+#' cds_names <- names(loadRegion(df, "cds"))
+#' dt <- data.table(id = cds_names[-1], LFC = seq(5), p.value = 0.05)
+#'
+#' symbols_dt <- data.table(ensembl_tx_name = cds_names,
+#'  ensembl_gene_id = txNamesToGeneNames(cds_names, df),
+#'  external_gene_name = c("ATF4", "AAT1", "ML4", "AST2", "RPL4", "RPL12"))
+#' append_gene_symbols(dt, symbols_dt)
+#' append_gene_symbols(dt, symbols_dt, extend_id = FALSE)
+append_gene_symbols <- function(dt, symbols_dt, extend_id = TRUE,
+                                id_col = "id") {
+  stopifnot(is(dt, "data.table"))
+  stopifnot(!is.null(dt$id))
+
+  dt_with_symbols <- copy(dt)
+  if (length(symbols_dt) > 0 & nrow(symbols_dt) > 0) {
+    tx_column <- grep("tx|transcript|value", colnames(symbols_dt), ignore.case = TRUE, value = TRUE)
+    if (length(tx_column) != 1) {
+      if (length(tx_column) == 0) {
+        warning("Could not find any column of symbols table with tx, transcript or value in column name, please rename/add")
+      } else{
+        warning("Found multiple columns of symbols table with tx, transcript or value in column name, please rename/remove")
+      }
+    }
+
+    dt_with_symbols <- data.table::merge.data.table(dt, symbols_dt, by.x = id_col, by.y = tx_column, sort = FALSE)
+    if (extend_id) {
+      dt_with_symbols[, id_original := id]
+      if (!is.null(dt_with_symbols$external_gene_name)) {
+        dt_with_symbols[, id := paste0(id, "(", external_gene_name, ")")]
+      } else if (!is.null(dt_with_symbols$label)) {
+        dt_with_symbols[, id := paste0(id, "(", sub("-.*", "", label), ")")]
+      } else warning("Could not find any column of symbols table with external_gene_name or label in column name, please rename/add")
+    }
+  }
+  dt_with_symbols[]
+  return(dt_with_symbols)
+}
+
 #' Add regulation categories
 #' @noRd
 DTEG_add_regulation_categories <- function(dt, complex.categories) {
@@ -287,6 +372,8 @@ DTEG_add_regulation_categories <- function(dt, complex.categories) {
   stopifnot(all(dt$Regulation %in% regulation_levels))
   dt[, Regulation :=
                factor(Regulation, levels = regulation_levels, ordered = TRUE)]
+  print(table(dt$Regulation))
+
   return(dt)
 }
 

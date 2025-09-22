@@ -22,9 +22,14 @@
 #' folder_to_save <- file.path(tempdir(), "ofst")
 #' convert_bam_to_ofst(df, out_dir = folder_to_save)
 #' fimport(file.path(folder_to_save, "ribo-seq.ofst"))
-convert_bam_to_ofst <- function(df, in_files =  filepath(df, "default"),
-                            out_dir = file.path(libFolder(df), "ofst"),
-                            verbose = TRUE, strandMode = rep(0, length(in_files))) {
+#' folder_to_save_unique <- file.path(tempdir(), "unique_mappers", "ofst")
+#' convert_bam_to_ofst(df, out_dir = folder_to_save_unique, only_unique_mappers = TRUE)
+#' fimport(file.path(folder_to_save_unique, "ribo-seq.ofst"))
+convert_bam_to_ofst <- function(df,
+                            in_files =  filepath(df, "default"),
+                            out_dir = file.path(libFolder(df, unique_mappers = only_unique_mappers), "ofst"),
+                            verbose = TRUE, strandMode = rep(0, length(in_files)),
+                            only_unique_mappers = uniqueMappers(df)) {
   stopifnot(all(is(strandMode, "numeric")))
   stopifnot(length(in_files) > 0)
   if (!is.null(df)) {
@@ -34,7 +39,7 @@ convert_bam_to_ofst <- function(df, in_files =  filepath(df, "default"),
   }
   lib_names <- remove.file_ext(basename(in_files))
   out_filepaths <- file.path(out_dir, paste0(lib_names, ".ofst"))
-  dir.create(out_dir, showWarnings = FALSE)
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
   if (verbose) message("-- Converting bam to ofst")
   if (verbose) message("Output to dir: ", out_dir)
   total_files <- length(out_filepaths)
@@ -43,7 +48,8 @@ convert_bam_to_ofst <- function(df, in_files =  filepath(df, "default"),
     if (verbose) message("- Library", index, ": ", lib_names[i])
     out_file <- out_filepaths[i]
     in_file <- in_files[i]
-    export.ofst(readBam(in_file, strandMode = strandMode[i]), out_file)
+    export.ofst(readBam(in_file, strandMode = strandMode[i], only_unique_mappers = only_unique_mappers),
+                out_file)
   }
   if (verbose) message("Done")
   return(invisible(NULL))
@@ -63,6 +69,8 @@ convert_bam_to_ofst <- function(df, in_files =  filepath(df, "default"),
 #' @param split.by.readlength logical, default FALSE, split into files
 #' for each readlength, defined by readWidths(x) for each file.
 #' @param seq_info SeqInfo object, default \code{seqinfo(findFa(df))}
+#' @param format chatacter, default "qs", alternative "rds". File format to
+#' save R object.
 #' @param weight integer, numeric or single length character. Default "score".
 #' Use score column in loaded in_files.
 #' @return invisible(NULL), files saved to disc
@@ -73,12 +81,13 @@ convert_bam_to_ofst <- function(df, in_files =  filepath(df, "default"),
 #' ## Usually do default folder, here we use tmpdir
 #' folder_to_save <- file.path(tempdir(), "cov_RLE")
 #' convert_to_covRle(df, out_dir = folder_to_save)
-#' fimport(file.path(folder_to_save, "RFP_Mutant_rep2.covrds"))
+#' fimport(file.path(folder_to_save, "RFP_Mutant_rep2.covqs"))
 convert_to_covRle <- function(df, in_files =  filepath(df, "pshifted"),
                               out_dir = file.path(libFolder(df), "cov_RLE"),
                               split.by.strand = TRUE,
                               split.by.readlength = FALSE,
                               seq_info = seqinfo(df), weight = "score",
+                              format = "qs",
                               verbose = TRUE) {
   if (!is.null(df)) {
     stopifnot(is(df, "experiment"))
@@ -104,16 +113,16 @@ convert_to_covRle <- function(df, in_files =  filepath(df, "pshifted"),
         out_file_rl <- paste0(out_file, "_", i)
         export.cov(x = x[all_readl_lengths == i], file = out_file_rl,
                    split.by.strand = split.by.strand,
-                   seqinfo = seq_info, weight = weight)
+                   seqinfo = seq_info, weight = weight, format = format)
       }
       if (verbose) message(", All readlengths merged")
       export.cov(x = x, file = out_file,
                  split.by.strand = split.by.strand,
-                 seqinfo = seq_info, weight = weight)
+                 seqinfo = seq_info, weight = weight, format = format)
     } else {
       export.cov(x = fimport(in_file), file = out_file,
                  split.by.strand = split.by.strand,
-                 seqinfo = seq_info, weight = weight)
+                 seqinfo = seq_info, weight = weight, format = format)
     }
   }
   if (verbose) message("Done")
@@ -142,12 +151,13 @@ convert_to_covRle <- function(df, in_files =  filepath(df, "pshifted"),
 #' folder_to_save_merged <- file.path(tempdir(), "cov_RLE")
 #' ORFik:::convert_to_covRleList(df, out_dir = folder_to_save,
 #' out_dir_merged = folder_to_save_merged)
-#' fimport(file.path(folder_to_save, "RFP_Mutant_rep2.covrds"))
+#' fimport(file.path(folder_to_save, "RFP_Mutant_rep2.covqs"))
 convert_to_covRleList <- function(df, in_files =  filepath(df, "pshifted"),
                               out_dir = file.path(libFolder(df), "cov_RLE_List"),
                               out_dir_merged = file.path(libFolder(df), "cov_RLE"),
                               split.by.strand = TRUE,
                               seq_info = seqinfo(df), weight = "score",
+                              format = "qs",
                               verbose = TRUE) {
   if (!is.null(df)) {
     stopifnot(is(df, "experiment"))
@@ -168,13 +178,14 @@ convert_to_covRleList <- function(df, in_files =  filepath(df, "pshifted"),
     x <- fimport(in_file)
     export.covlist(x, file = out_file,
                    split.by.strand = split.by.strand,
-                   seqinfo = seq_info, weight = weight, verbose = verbose)
+                   seqinfo = seq_info, weight = weight,
+                   verbose = verbose, format = format)
 
     if (!is.null(out_dir_merged)) {
       if (verbose) message(", All readlengths merged")
       export.cov(x = x, file = out_filepaths_merged[i],
                  split.by.strand = split.by.strand,
-                 seqinfo = seq_info, weight = weight)
+                 seqinfo = seq_info, weight = weight, format = format)
     }
 
   }

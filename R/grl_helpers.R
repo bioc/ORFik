@@ -6,7 +6,7 @@
 #' @return a GRangesList of reads restricted to firstN and tiled by 1
 #' @keywords internal
 downstreamN <- function(grl, firstN = 150L) {
-  return(heads(tile1(grl, matchNaming = FALSE), firstN))
+  return(heads(tile1(grl, matchNaming = FALSE, mergeEqualNamed = FALSE), firstN))
 }
 
 #' Get list of widths per granges group
@@ -190,11 +190,12 @@ reverseMinusStrandPerGroup <- function(grl, onlyIfIncreasing = TRUE) {
 #' strandPerGroup(grl)
 strandPerGroup <- function(grl, keep.names = TRUE) {
   validGRL(class(grl))
-  if (keep.names) {
-    return(heads(strand(grl), 1L))
-  } else {
-    return(as.character(heads(strand(grl), 1L)))
+  starts <- start(IRanges::PartitioningByEnd(grl))
+  res <- strand(grl@unlistData)[starts]
+  if (!keep.names) {
+    return(as.character(res))
   }
+  return(res)
 }
 
 
@@ -391,7 +392,7 @@ unlistGrl <- function(grl) {
 
 #' Removes meta columns
 #'
-#' @param grl a GRangesList or GRanges object
+#' @param grl a \code{\link{GRangesList}} or GRanges object
 #' @return same type and structure as input without meta columns
 #' @keywords internal
 removeMetaCols <- function(grl) {
@@ -413,6 +414,43 @@ removeMetaCols <- function(grl) {
     names(grl) <- names
   }
   return(grl)
+}
+
+#' Convert GRangesList to character vector
+#'
+#' Single exon format:\cr
+#' "1:14598834-14598914:+"\cr
+#' Multi-exon format (exon separator: ';'):\cr
+#' "1:15210514-15210562:+;1:15214895-15215025:+"
+#' @param x A \code{\link{GRangesList}}
+#' @param ... Not used for now, to preserve generic requirement
+#' @return a character vector, 1 element per element in GRangesList
+#' @export
+setMethod("as.character", "GRangesList", function(x, ...) {
+  if (length(x) == 0) return(character())
+  u <- unlist(x, use.names = FALSE)
+  per <- paste0(seqnames(u), ":", start(u), "-", end(u), ":", as.character(strand(u)))
+  cl <- relist(per, x)
+  res <- unstrsplit(cl, sep = ";")
+  # names(res) <- names(x)
+  return(res)
+})
+
+#' Convert a character vector to GRangesList
+#' @param x a character vector
+#' @return a GRangesList
+#' @export
+#' @examples
+#' vec <- c("1:14598834-14598914:+", "1:15210514-15210562:+;1:15214895-15215025:+")
+#' makeGRangesListFromCharacter(vec)
+makeGRangesListFromCharacter <- function(x) {
+  if (length(x) == 0) return(GRangesList())
+
+  str_split <- strsplit(x, ";")
+  gr <- as(unlist(str_split), "GRanges")
+  res <- split(gr, groupings(str_split))
+  names(res) <- names(x)
+  return(res)
 }
 
 #' Get number of ranges per group as an iteration
@@ -538,6 +576,83 @@ coverageByTranscriptC <- function (x, transcripts, ignore.strand = !strandMode(x
   ans <- IRanges:::regroupBySupergroup(ex_cvg, transcripts)
   mcols(ans) <- mcols(transcripts)
   return(ans)
+}
+
+#' Get coverage from fst large coverage format
+#'
+#' @param grl a GRangesList
+#' @param fst_index a path to an existing fst index file
+#' @param columns NULL or character, default NULL. Else must be a subset of
+#' names in the fst files. Run ids etc.
+#' @return a list, each element is a data.table of coverage
+#' @export
+#' @examples
+#' library(data.table)
+#' library(ORFik)
+#' grl <- GRangesList("1:1-5:+")
+#' tempdir <- tempdir()
+#' fst_index <- file.path(tempdir, "coverage_index.fst")
+#' mock_run_names <- c("SRR1010101", "SRR1010102", "SRR1010103")
+#' coverage_file <- file.path(tempdir, paste0("coverage_1_part1_",
+#'  c("forward", "reverse"), ".fst"))
+#' mock_coverage <- setnames(setDT(lapply(mock_run_names, function(x) {
+#'  sample(seq(0, 100), 100, replace = TRUE, prob = c(0.95, rep(0.01, 100)))})),
+#'  mock_run_names)
+#' mock_index <- data.table(chr = "1", start = 1, end = nrow(mock_coverage),
+#'  file_forward = coverage_file[1], file_reverse = coverage_file[2])
+#'
+#' fst::write_fst(mock_index, fst_index)
+#' fst::write_fst(mock_coverage, coverage_file[1])
+#'
+#' coverageByTranscriptFST(grl, fst_index)
+#' coverageByTranscriptFST(grl, fst_index, c("SRR1010101", "SRR1010102"))
+coverageByTranscriptFST <- function(grl, fst_index, columns = NULL) {
+  if (!file.exists(fst_index)) stop("No valid fst index file at location: ", fst_index)
+  index <- read_fst(fst_index, as.data.table = TRUE)
+  if (dirname(index$file_forward[1]) != dirname(fst_index)) {
+    index[, file_forward := file.path(dirname(fst_index), basename(file_forward))]
+    index[, file_reverse := file.path(dirname(fst_index), basename(file_reverse))]
+  }
+  if (!file.exists(index$file_forward[1])) {
+    stop("Fst index found, but no coverage fst page files found, first file missing: ",
+         index$file_forward[1],
+         "\n  Index located at: ", fst_index)
+  }
+
+  valid_chromosomes <- unique(index$chr)
+  input_chromosomes <- as.character(unique(unlist(seqnames(grl), use.names = FALSE)))
+  stopifnot(all(input_chromosomes %in% valid_chromosomes))
+
+  # Find page files needed per grl
+  tiles_all <- lapply(grl, function(gr) {
+    dt <-  index[chr %in% unique(as.character(seqnames(gr))),]
+    setkey(dt, start, end)
+    query <- as.data.table(ranges(gr))[, c(1,2), with = FALSE]
+    setnames(query, c("start", "end"))
+    query[, query_id := .I]  # optional: track which query range matched
+    setkey(query, start, end)
+    res <- foverlaps(dt, query, nomatch = 0)
+
+    res[, start_segment := pmax(start - i.start + 1, 1)]
+    res[, end_segment := pmin(end - i.start + 1, i.end - i.start + 1)]
+    res[, strand := as.character(strand(gr)[query_id])]
+    res[, file := ifelse(strand == "+", file_forward, file_reverse)]
+    res[order(query_id),][]
+  })
+
+  # Read data from appropriate files using offset
+  results <- lapply(tiles_all, function(tiles) {
+    fst::threads_fst(5, reset_after_fork = FALSE)
+    return(rbindlist(lapply(data.table::transpose(tiles[, .(start_segment, end_segment, file, strand)]), function(x) {
+      d <- read_fst(x[3], columns,
+                    from = as.numeric(format(x[1], scientific=FALSE)),
+                    to = as.numeric(format(x[2], scientific=FALSE)),
+                    as.data.table = TRUE)
+      if (x[4] == "-") d <- d[rev(seq.int(nrow(d))),]
+      return(d)
+    })))
+  })
+  return(results)
 }
 
 # Testing new version

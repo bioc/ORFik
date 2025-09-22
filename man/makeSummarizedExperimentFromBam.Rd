@@ -16,6 +16,10 @@ makeSummarizedExperimentFromBam(
   forceRemake = FALSE,
   force = TRUE,
   library.names = bamVarName(df),
+  libraries = outputLibs(df, chrStyle = seqinfo(df), paths = filepath(df, lib.type,
+    suffix_stem = c("", "_pshifted")), type = lib.type, force = force, library.names =
+    library.names, BPPARAM = BPPARAM),
+  format = "qs",
   BPPARAM = BiocParallel::SerialParam()
 )
 }
@@ -43,9 +47,10 @@ Can then be uORFs or a subset of CDS etc.}
 "log2fpkm" or "log10fpkm"}
 
 \item{lib.type}{a character(default: "default"), load files in experiment
-or some precomputed variant, either "ofst", "bedo", "bedoc" or "pshifted".
+or some precomputed variant, either "ofst", "pshifted" or "cov"
 These are made with ORFik:::convertLibs() or shiftFootprintsByExperiment().
-Can also be custom user made folders inside the experiments bam folder.}
+Can also be custom user made folders inside the experiments bam folder.
+Format "cov" (i.e. covRle format) is by far the fastest to use if existing.}
 
 \item{weight}{numeric or character, a column to score overlaps by. Default "score",
 will check for a metacolumn called "score" in libraries. If not found,
@@ -61,6 +66,12 @@ is loaded correctly already.}
 
 \item{library.names}{character, default: bamVarName(df). Names to load
 libraries as to environment and names to display in plots.}
+
+\item{libraries}{The call to output libraries, the input is not used! Default:
+outputLibs(df, chrStyle = seqinfo(df), type = lib.type, force = force,
+ library.names = library.names, BPPARAM = BPPARAM)}
+
+\item{format}{character, default "qs", alternative: "rds". Which format to save summarizedExperiment.}
 
 \item{BPPARAM}{how many cores/threads to use? default: BiocParallel::SerialParam()}
 }

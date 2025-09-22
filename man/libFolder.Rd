@@ -2,18 +2,21 @@
 % Please edit documentation in R/experiment_class.R
 \name{libFolder}
 \alias{libFolder}
-\title{Get ORFik experiment library folder}
+\title{Get path to ORFik experiment library folder}
 \usage{
-libFolder(x, mode = "first")
+libFolder(x, mode = "first", unique_mappers = uniqueMappers(x))
 }
 \arguments{
 \item{x}{an ORFik \code{\link{experiment}}}
 
-\item{mode}{character, default "first". Alternatives: "unique", "all".}
+\item{mode}{character, default "first". Alternatives: "unique", "all". Unique
+means the unique directories, not to be confused with unique_mappers argument below.}
+
+\item{unique_mappers}{logical, default uniqueMappers(x) If true appends unique_mappers to path}
 }
 \value{
 a character path
 }
 \description{
-Get ORFik experiment library folder
+Get path to ORFik experiment library folder
 }

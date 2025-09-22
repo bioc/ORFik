@@ -25,7 +25,7 @@ bedToGR <- function(x, skip.name = TRUE) {
 }
 
 #' Internal GRanges loader from fst data.frame
-#' @param df a data.frame with columns minimum 4 columns:
+#' @param df a data.frame/data.table with columns minimum 4 columns:
 #' seqnames, start, strand\cr
 #' Additional specific columns are:\cr
 #' - width (if not set, width is set to 1 for all reads)\cr
@@ -71,7 +71,7 @@ getGRanges <- function(df, seqinfo = NULL) {
 }
 
 #' Internal GAlignments loader from fst data.frame
-#' @param df a data.frame with columns minimum 4 columns:
+#' @param df a data.frame/data.table with columns minimum 4 columns:
 #' seqnames, start ("pos" in final GA object), cigar and strand.\cr
 #' Additional columns will be assigned as meta columns
 #' @inheritParams import.ofst
@@ -79,11 +79,14 @@ getGRanges <- function(df, seqinfo = NULL) {
 #' @importFrom S4Vectors new2
 #' @keywords internal
 getGAlignments <- function(df, seqinfo = NULL) {
+  stopifnot(is(df, "data.frame"))
   if (!all(c("seqnames", "start", "cigar", "strand") %in% colnames(df)))
     stop("df must at minimum have 4 columns named: seqnames, start, cigar and strand")
   if (nrow(df) == 0) return(GenomicAlignments::GAlignments())
+  if (!is(df, "data.table")) setDT(df)
+
   if (is.null(levels(df$seqnames))) {
-    df$seqnames <- factor(df$seqnames, levels = unique(df$seqnames))
+    df[, seqnames := factor(df$seqnames, levels = unique(df$seqnames))]
   }
   if (!is.null(seqinfo)) {
     stopifnot(is(seqinfo, "Seqinfo"))
@@ -100,7 +103,10 @@ getGAlignments <- function(df, seqinfo = NULL) {
       names(mcols) <- names(df)[5]
     }
   }
-  df$strand <- factor(df$strand, levels = c("+", "-", "*"))
+  if (!is(df$strand, "factor") && identical(levels(df$strand), c("+", "-", "*"))){
+    df[, strand := factor(strand, levels = c("+", "-", "*"))]
+  }
+
   mcols <- S4Vectors:::normarg_mcols(mcols, "GRanges", nrow(df))
   new2("GAlignments", NAMES = names, seqnames = Rle(df$seqnames), start = df$start,
        cigar = as.character(df$cigar), strand = Rle(df$strand), elementMetadata = mcols,
@@ -250,12 +256,16 @@ matchSeqStyle <- function(range, chrStyle = NULL) {
     valid_seq_style <- seqlevelsStyleSafe(range)
     if (!is.null(valid_seq_style)) {
       if (is.character(chrStyle)) {
-        seqlevelsStyle(range) <- chrStyle[1]
+        if (!any(seqlevelsStyle(range) %in% chrStyle)) {
+          try(seqlevelsStyle(range) <- chrStyle[1], silent = TRUE)
+        }
       } else if (is.gr_or_grl(chrStyle) | is(chrStyle, "TxDb") |
                  is(chrStyle, "FaFile") | is(chrStyle, "Seqinfo")) {
         style_is_different <- !any(seqlevelsStyle(range) %in% seqlevelsStyle(chrStyle)[1])
         if (style_is_different) {
-          seqlevelsStyle(range) <- seqlevelsStyle(chrStyle)[1]
+          if (!any(seqlevelsStyle(range) %in% chrStyle)) {
+            try(seqlevelsStyle(range) <- seqlevelsStyle(chrStyle)[1], silent = TRUE)
+          }
         }
       } else stop("chrStyle must be valid GRanges object,",
                   "or a valid chr style!")
@@ -359,6 +369,52 @@ combn.pairs <- function(x) {
   return(pairs)
 }
 
+#' Read RDS or QS format file
+#'
+#' @param file path to file with "rds" or "qs" file extension
+#' @param nthread numeric, number of threads for qs::qread
+#' @return R object loaded from file
+#' @importFrom qs qread
+#' @export
+#' @examples
+#' df <- ORFik::ORFik.template.experiment()
+#' path <- ORFik:::countTablePath(df)
+#' read_RDSQS(path)
+read_RDSQS <- function(file, nthread = 5) {
+  format <- file_ext(file)
+  stopifnot(format %in% c("qs", "rds", "covqs", "covrds"))
+  if (format %in% c("rds", "covrds")) {
+    readRDS(file)
+  } else qs::qread(file, nthread = nthread)
+}
+
+#' Read RDS or QS format file
+#'
+#' @param object the object to save
+#' @param file path to file with "rds" or "qs" file extension
+#' @param nthread numeric, number of threads for qs::qread
+#' @return R object loaded from file
+#' @importFrom qs qread
+#' @export
+#' @examples
+#' path <- tempfile(fileext = ".qs")
+#' # Simple numeric save
+#' x <- 1
+#' save_RDSQS(x, path)
+#' read_RDSQS(path)
+#' # Save a list
+#' x <- list(a = 1, b = c(1,2,3))
+#' save_RDSQS(x, path)
+#' read_RDSQS(path)
+save_RDSQS <- function(object, file, nthread = 5) {
+  stopifnot(is(file, "character"))
+  format <- file_ext(file)
+  stopifnot(format %in% c("qs", "rds", "covqs", "covrds"))
+  if (format %in% c("rds", "covrds")) {
+    saveRDS(object, file)
+  } else qs::qsave(object, file, nthread = nthread)
+}
+
 #' A fast ftp directory check
 #'
 #' Check if ftp directory exists
@@ -441,7 +497,9 @@ exists.ftp.file.fast <- function(url, report.error = FALSE) {
 #' @param ref_path = path.expand(config()["ref"])
 #' @return character, name of FileSystem drive of mounted path,
 #' NA_character_ if not found
-#' @noRd
+#' @export
+#' @examples
+#' detect_drive(tempdir())
 detect_drive <- function(ref_path = path.expand(config()["ref"])) {
   if (.Platform$OS.type != "unix") return(NA_character_)
   ref_path <- path.expand(ref_path)
@@ -485,34 +543,71 @@ detect_drive <- function(ref_path = path.expand(config()["ref"])) {
 #' @examples
 #' get_system_usage()
 get_system_usage <- function(drive = detect_drive(), one_liner = FALSE) {
-  if (.Platform$OS.type != "unix") return(list())
-  # Get CPU usage
-  cpu_usage <- as.numeric(system("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'", intern = TRUE))
+  is_windows <- .Platform$OS.type != "unix"
+  if (is_windows) return(list())
 
-  # Get Memory usage (in GB)
-  mem_info <- system("free -g | awk 'NR==2{print $3, $2}'", intern = TRUE)
-  mem_vals <- as.numeric(strsplit(mem_info, " ")[[1]])
-  mem_usage <- mem_vals[1]
-  mem_total <- mem_vals[2]
-  mem_percent <- round((mem_usage / mem_total) * 100, 2)
+  sysname <- Sys.info()[["sysname"]]
+  is_linux <- sysname == "Linux"
+  is_macos <- sysname == "Darwin"
 
-  # Get Hard drive usage
-  if (!is.na(drive)) {
-    drive_line <- suppressWarnings(system(paste0("df -h | grep '", drive, "'"), intern = TRUE))
-    if (length(attr(drive_line, "status")) == 1) {
-      drive_vals <- as.character(rep(NA, 5))
-    } else drive_vals <- strsplit(drive_line, " +")[[1]]
+  # ---- CPU usage ----
+  cpu_call <- if (is_linux) {
+    "top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'"
+  } else if (is_macos) {
+    "top -l 1 | grep 'CPU usage' | awk -F'[:,]' '{print $2}' | awk -F'%' '{print 100 - $1}'"
   } else {
-    drive_vals <- as.character(rep(NA, 5))
+    return(list())
+  }
+  cpu_usage <- as.numeric(system(cpu_call, intern = TRUE))
+
+  # ---- Memory usage (in GB) ----
+  if (is_linux) {
+    mem_info <- system("free -g | awk 'NR==2{print $3, $2}'", intern = TRUE)
+    mem_vals <- as.numeric(strsplit(trimws(mem_info), "\\s+")[[1]])
+    mem_usage <- mem_vals[1]
+    mem_total <- mem_vals[2]
+  } else if (is_macos) {
+    page_size <- as.numeric(system("sysctl -n hw.pagesize", intern = TRUE))
+    vm_stats <- system("vm_stat", intern = TRUE)
+    get_pages <- function(label) {
+      as.numeric(gsub("[^0-9]", "", grep(label, vm_stats, value = TRUE)))
+    }
+    free_pages <- get_pages("Pages free:")
+    active_pages <- get_pages("Pages active:")
+    speculative_pages <- get_pages("Pages speculative:")
+    inactive_pages <- get_pages("Pages inactive:")
+    wired_pages <- get_pages("Pages wired down:")
+
+    used_pages <- active_pages + inactive_pages + wired_pages + speculative_pages
+    total_pages <- used_pages + free_pages
+
+    mem_usage <- round((used_pages * page_size) / 1e9, 2)  # in GB
+    mem_total <- round((total_pages * page_size) / 1e9, 2)
+  } else {
+    return(list())
   }
 
-  drive_total <- drive_vals[2]  # Total size
-  drive_used <- drive_vals[3]   # Used space
-  drive_free <- drive_vals[4]   # Available space
-  drive_percent <- drive_vals[5]  # Percentage used
+  mem_percent <- round((mem_usage / mem_total) * 100, 2)
 
+  # ---- Drive usage ----
+  if (!is.na(drive)) {
+    drive_line <- suppressWarnings(system(paste0("df -h | grep '",
+                              drive, "'", " | tail -1"), intern = TRUE))
+    if (length(attr(drive_line, "status")) == 1 || length(drive_line) == 0) {
+      drive_vals <- as.character(rep(NA, 6))
+    } else {
+      drive_vals <- strsplit(trimws(drive_line), " +")[[1]]
+    }
+  } else {
+    drive_vals <- as.character(rep(NA, 6))
+  }
 
-  # Return as a named list
+  drive_total <- drive_vals[2]
+  drive_used <- drive_vals[3]
+  drive_free <- drive_vals[4]
+  drive_percent <- drive_vals[5]
+
+  # ---- Output ----
   usage <- list(
     CPU_Usage_Percent = cpu_usage,
     Memory_Usage_GB = mem_usage,
@@ -531,6 +626,7 @@ get_system_usage <- function(drive = detect_drive(), one_liner = FALSE) {
 
   return(usage)
 }
+
 
 get_system_usage_one_liner <- function(usage) {
   cat(paste0("CPU (", usage$CPU_Usage_Percent, "%),",
